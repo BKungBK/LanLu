@@ -1,0 +1,11 @@
+{
+    "schema_version": 2,
+    "commit": "HEAD",
+    "indexed_at": "2026-08-22T11:20:14Z",
+    "project": "E-Prototype",
+    "nodes": 212,
+    "edges": 439,
+    "original_size": 1572864,
+    "compressed_size": 188175,
+    "compression_level": 9
+}
