@@ -5,9 +5,20 @@ const publicPrefixes = ["/login", "/auth", "/_next", "/favicon.ico"];
 
 export async function middleware(request: NextRequest) {
   let response = NextResponse.next({ request });
+  const path = request.nextUrl.pathname;
+  const isPublic = publicPrefixes.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
 
   if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY) {
     return response;
+  }
+
+  const hasAuthCookie = request.cookies.getAll().some(({ name }) => name.startsWith("sb-") && name.includes("-auth-token"));
+  if (!hasAuthCookie) {
+    if (isPublic) return response;
+    const url = request.nextUrl.clone();
+    url.pathname = "/login";
+    url.searchParams.set("next", `${path}${request.nextUrl.search}`);
+    return NextResponse.redirect(url);
   }
 
   const supabase = createServerClient(
@@ -28,8 +39,6 @@ export async function middleware(request: NextRequest) {
   );
 
   const { data: { user } } = await supabase.auth.getUser();
-  const path = request.nextUrl.pathname;
-  const isPublic = publicPrefixes.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
 
   if (!user && !isPublic) {
     const url = request.nextUrl.clone();
