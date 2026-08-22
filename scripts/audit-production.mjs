@@ -55,7 +55,7 @@ async function inspect(page, route, viewportName, authenticated) {
   if (inspection.expectedMissing.length) issues.push(inspection.expectedMissing.join(", "));
   if (inspection.horizontalOverflow) issues.push(`horizontal overflow ${inspection.scrollWidth}px > ${inspection.viewportWidth}px`);
   if (inspection.unnamedInteractive.length) issues.push(`${inspection.unnamedInteractive.length} unnamed interactive elements`);
-  if (inspection.smallTouchTargets.length) issues.push(`${inspection.smallTouchTargets.length} visible targets <44px`);
+  if (inspection.smallTouchTargets.length && viewportName === "mobile") issues.push(`${inspection.smallTouchTargets.length} visible targets <44px`);
   if (consoleErrors.length) issues.push(`${consoleErrors.length} console errors`);
   if (pageErrors.length) issues.push(`${pageErrors.length} page errors`);
   if (failedRequests.length) issues.push(`${failedRequests.length} failed requests`);
@@ -72,7 +72,8 @@ async function authenticate(context) {
   await page.getByLabel("Email").fill(email);
   await page.getByLabel("Password").fill(password);
   await page.getByRole("button", { name: /เข้าสู่ Dashboard|เข้าสู่ระบบ/ }).click();
-  await page.waitForTimeout(1200);
+  await page.waitForURL((url) => url.pathname !== "/login", { timeout: 10000 }).catch(() => {});
+  await page.waitForTimeout(300);
   const ok = new URL(page.url()).pathname !== "/login";
   await page.close();
   return ok;

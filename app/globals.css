@@ -344,7 +344,7 @@ button { cursor: pointer; }
 .recipe-line .text-input { width: 100%; }
 .capture-lot-fields { margin-top: 12px; }
 .close-day-toggle { display: flex; align-items: flex-start; gap: 9px; margin-top: 13px; padding: 11px 12px; color: var(--coffee); background: #fff8f0; border: 1px solid var(--line); border-radius: 12px; cursor: pointer; }
-.close-day-toggle input { width: 18px; height: 18px; margin-top: 1px; accent-color: var(--clay-dark); }
+.close-day-toggle input { width: 44px; height: 44px; flex: 0 0 44px; margin: 0; accent-color: var(--clay-dark); }
 .close-day-toggle strong, .close-day-toggle small { display: block; }
 .close-day-toggle strong { font-size: 11px; }
 .close-day-toggle small { color: var(--coffee-2); margin-top: 3px; font-size: 9.5px; }
@@ -413,12 +413,12 @@ button { cursor: pointer; }
   .sidebar { position: fixed; inset: 10px auto 10px 10px; min-height: 0; height: calc(100dvh - 20px); transform: translateX(-112%); transition: transform .25s ease; box-shadow: 0 18px 50px rgba(91,64,48,.18); }
   .sidebar.sidebar-open { transform: translateX(0); }
   .mobile-backdrop { display: block; position: fixed; inset: 0; z-index: 15; border: 0; background: rgba(91,64,48,.24); }
-  .mobile-close { display: grid; place-items: center; margin-left: auto; padding: 4px; color: var(--coffee-2); border: 0; background: transparent; }
+  .mobile-close { display: grid; place-items: center; min-width: 44px; min-height: 44px; margin-left: auto; padding: 8px; color: var(--coffee-2); border: 0; background: transparent; }
   .main-content { width: 100%; }
   .mobile-topbar { display: flex; align-items: center; justify-content: space-between; height: 58px; padding: 0 16px; }
   .mobile-menu-button { display: grid; place-items: center; padding: 6px; color: var(--coffee); border: 0; background: transparent; }
   .mobile-brand { display: flex; align-items: center; gap: 7px; margin-right: auto; margin-left: 10px; color: var(--clay-dark); font-size: 15px; }
-  .mobile-capture { display: grid; place-items: center; width: 30px; height: 30px; color: var(--paper); background: var(--clay-dark); border-radius: 11px; font-size: 22px; line-height: 1; }
+  .mobile-capture { display: grid; place-items: center; width: 44px; height: 44px; color: var(--paper); background: var(--clay-dark); border-radius: 12px; font-size: 22px; line-height: 1; }
   .content-wrap { padding: 2px 16px 30px; }
   .signal-strip, .dashboard-row, .capture-layout, .forecast-hero, .inventory-layout, .settings-grid { grid-template-columns: 1fr; }
   .signal-strip { gap: 1px; }
@@ -462,9 +462,9 @@ button { cursor: pointer; }
   .button { min-height: 44px; font-size: 13px; }
   .text-input, .select-input, .date-input { min-height: 44px; height: 44px; font-size: 16px; }
   .mode-button { min-height: 44px; font-size: 12px; }
-  .stepper button { width: 40px; height: 40px; }
+  .stepper button { width: 44px; height: 44px; }
   .mobile-menu-button { min-width: 44px; min-height: 44px; padding: 8px; }
-  .mobile-capture { width: 40px; height: 40px; }
+  .mobile-capture { width: 44px; height: 44px; }
   .sales-chart { height: 190px; gap: 5px; }
   .sales-chart-large { height: 210px; }
   .forecast-chart { height: 214px; gap: 5px; }
