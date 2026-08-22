@@ -2,7 +2,7 @@
 version: 1
 status: complete
 task_id: lanlu-catalog-gemini-ui-audit
-updated_at: 2026-08-23T00:55:00+07:00
+updated_at: 2026-08-23T04:26:18+07:00
 ---
 
 # Goal
@@ -82,8 +82,8 @@ Implement the LanLu Catalog + Gemini Assistant and major UI audit plan from the 
 
 # Latest checkpoint
 
-Catalog UX and assistant implementation are complete locally; production deployment and authenticated verification remain outside this session.
+User confirmed the simplified catalog contract: remove supplier and reorder-point inputs, explain stock unit in plain Thai, keep menu and recipe as one user-facing menu flow, and expose permanent delete as the second step after archive. Implemented the copy/layout pass, strict AI field guidance, and history-safe permanent-delete RPC/UI. Applied and verified the restore and permanent-delete migrations on the linked Supabase project.
 
 # Next action
 
-If continuing, apply the new Supabase migration and rerun authenticated route/Capture audits with the supplied audit account.
+Push the catalog UX and permanent-delete changes; authenticated UI audit still needs the supplied audit account.

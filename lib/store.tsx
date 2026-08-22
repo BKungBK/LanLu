@@ -8,7 +8,7 @@ import type { CatalogBundleImportInput, CatalogImportInput, Ingredient, LanluSta
 type Result = { ok: boolean; message: string };
 export type CatalogActionResult = Result & {
   entity?: "ingredient" | "menu" | "recipe";
-  action?: "archive" | "restore";
+  action?: "archive" | "restore" | "delete";
   impact?: string[];
 };
 
@@ -50,6 +50,7 @@ type LanluContextValue = {
   updateMenuItem: (input: Pick<MenuItem, "id"> & Partial<Omit<MenuItem, "id">>) => Promise<Result>;
   archiveCatalogItem: (kind: "ingredient" | "menu", id: string) => Promise<CatalogActionResult>;
   restoreCatalogItem: (kind: "ingredient" | "menu", id: string) => Promise<CatalogActionResult>;
+  deleteCatalogItem: (kind: "ingredient" | "menu", id: string) => Promise<CatalogActionResult>;
   archiveRecipe: (menuItemId: string) => Promise<Result>;
   createMenuCategory: (name: string) => Promise<Result>;
   addIngredient: (input: Omit<Ingredient, "id"> & { openingExpiry?: string }) => Promise<Result>;
@@ -85,6 +86,10 @@ function messageForError(error: { message?: string } | null, fallback: string) {
   if (message.includes("sale_requires_line")) return "เลือกเมนูอย่างน้อย 1 รายการก่อนบันทึก";
   if (message.includes("menu_item_not_found")) return "ไม่พบเมนูนี้แล้ว ลองโหลดหน้าใหม่";
   if (message.includes("recipe_not_found")) return "ไม่พบสูตรที่ยังใช้งานอยู่ของเมนูนี้";
+  if (message.includes("catalog_item_must_be_archived")) return "ต้องเก็บรายการออกจากรายการก่อนจึงจะลบถาวรได้";
+  if (message.includes("catalog_item_has_recipe_history")) return "ลบไม่ได้ เพราะรายการนี้มีสูตรหรือประวัติสูตรอยู่ · ใช้เก็บออกแทนเพื่อรักษาข้อมูลย้อนหลัง";
+  if (message.includes("catalog_item_has_inventory_history")) return "ลบไม่ได้ เพราะวัตถุดิบนี้มีประวัติรับ-จ่ายสต๊อกอยู่ · ใช้เก็บออกแทนเพื่อรักษา ledger";
+  if (message.includes("catalog_item_has_sales_history")) return "ลบไม่ได้ เพราะเมนูนี้มียอดขายย้อนหลังอยู่ · ใช้เก็บออกแทนเพื่อรักษา snapshot";
   if (message.includes("duplicate") || message.includes("unique")) return "รายการนี้ถูกบันทึกไปแล้ว";
   return message || fallback;
 }
@@ -238,6 +243,19 @@ export function LanluProvider({ children }: { children: React.ReactNode }) {
       impact: kind === "ingredient" ? ["ledger เดิมยังอยู่", "สูตรเดิมยังอยู่", "กลับมาแสดงใน Quick capture"] : ["sales snapshot เดิมยังอยู่", "สูตรเดิมยังอยู่", "กลับมาแสดงใน Quick capture"],
     };
   }, [refresh, state.shop.id, supabase]);
+  const deleteCatalogItem = useCallback(async (kind: "ingredient" | "menu", id: string): Promise<CatalogActionResult> => {
+    if (!state.shop.id) return { ok: false, message: "ยังไม่มีร้าน", entity: kind, action: "delete" };
+    const { error: deleteError } = await supabase.rpc("delete_catalog_item", { target_shop_id: state.shop.id, target_kind: kind, target_id: id });
+    if (deleteError) return { ok: false, message: messageForError(deleteError, "ลบรายการไม่สำเร็จ"), entity: kind, action: "delete" };
+    await refresh();
+    return {
+      ok: true,
+      message: kind === "ingredient" ? "ลบวัตถุดิบถาวรแล้ว · รายการนี้ไม่มีประวัติที่ต้องเก็บไว้" : "ลบเมนูถาวรแล้ว · รายการนี้ไม่มีประวัติที่ต้องเก็บไว้",
+      entity: kind,
+      action: "delete",
+      impact: ["รายการถูกลบจาก catalog", "audit event การลบยังถูกเก็บไว้"],
+    };
+  }, [refresh, state.shop.id, supabase]);
   const createMenuCategory = useCallback(async (name: string): Promise<Result> => { if (!state.shop.id || !user?.id || !name.trim()) return { ok: false, message: "ใส่ชื่อหมวดก่อน" }; const { error: insertError } = await supabase.from("menu_categories").upsert({ shop_id: state.shop.id, name: name.trim(), created_by: user.id, updated_at: now() }, { onConflict: "shop_id,name" }); if (insertError) return { ok: false, message: messageForError(insertError, "เพิ่มหมวดไม่สำเร็จ") }; return { ok: true, message: `เพิ่มหมวด${name.trim()}แล้ว` }; }, [state.shop.id, supabase, user?.id]);
   const addIngredient = useCallback(async (input: Omit<Ingredient, "id"> & { openingExpiry?: string }): Promise<Result> => {
     if (!state.shop.id || !user?.id) return { ok: false, message: "ตั้งค่าร้านก่อนเพิ่มวัตถุดิบ" };
@@ -263,7 +281,7 @@ export function LanluProvider({ children }: { children: React.ReactNode }) {
     await refresh(); return { ok: true, message: "นำเข้าชุด catalog แบบ transaction เดียวแล้ว" };
   }, [refresh, state.shop.id, supabase]);
   const dismissRecommendation = useCallback(async (recommendationId: string): Promise<Result> => { if (recommendationId.startsWith("local-")) { setState((current) => ({ ...current, recommendations: current.recommendations.filter((item) => item.id !== recommendationId) })); return { ok: true, message: "ซ่อนคำแนะนำแล้ว" }; } const { error: updateError } = await supabase.from("recommendations").update({ dismissed_at: now() }).eq("id", recommendationId); if (updateError) return { ok: false, message: messageForError(updateError, "ซ่อนคำแนะนำไม่สำเร็จ") }; await refresh(); return { ok: true, message: "ซ่อนคำแนะนำแล้ว" }; }, [refresh, supabase]);
-  const value = useMemo<LanluContextValue>(() => ({ state, user, loading, hydrated, error, needsOnboarding: Boolean(user && !state.shop.id), refresh, createShop, recordSale, confirmDailyClose, postMovement, updateShop, addMenuItem, updateMenuItem, archiveCatalogItem, restoreCatalogItem, archiveRecipe, createMenuCategory, addIngredient, updateIngredient, saveRecipe, importCatalog, importCatalogBundle, dismissRecommendation, resetDemo: () => setState(emptyState) }), [addIngredient, addMenuItem, archiveCatalogItem, archiveRecipe, confirmDailyClose, createMenuCategory, createShop, dismissRecommendation, error, hydrated, importCatalog, importCatalogBundle, loading, postMovement, recordSale, refresh, restoreCatalogItem, saveRecipe, state, updateIngredient, updateMenuItem, updateShop, user]);
+  const value = useMemo<LanluContextValue>(() => ({ state, user, loading, hydrated, error, needsOnboarding: Boolean(user && !state.shop.id), refresh, createShop, recordSale, confirmDailyClose, postMovement, updateShop, addMenuItem, updateMenuItem, archiveCatalogItem, restoreCatalogItem, deleteCatalogItem, archiveRecipe, createMenuCategory, addIngredient, updateIngredient, saveRecipe, importCatalog, importCatalogBundle, dismissRecommendation, resetDemo: () => setState(emptyState) }), [addIngredient, addMenuItem, archiveCatalogItem, archiveRecipe, confirmDailyClose, createMenuCategory, createShop, deleteCatalogItem, dismissRecommendation, error, hydrated, importCatalog, importCatalogBundle, loading, postMovement, recordSale, refresh, restoreCatalogItem, saveRecipe, state, updateIngredient, updateMenuItem, updateShop, user]);
   return <LanluContext.Provider value={value}>{children}</LanluContext.Provider>;
 }
 
