@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { AuthChangeEvent, Session, User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
-import type { CatalogImportInput, Ingredient, LanluState, MenuCategory, MenuItem, Recommendation, Recipe, Shop } from "./types";
+import type { CatalogBundleImportInput, CatalogImportInput, Ingredient, LanluState, MenuCategory, MenuItem, Recommendation, Recipe, Shop } from "./types";
 
 type Result = { ok: boolean; message: string };
 
@@ -48,6 +48,7 @@ type LanluContextValue = {
   updateIngredient: (input: Pick<Ingredient, "id"> & Partial<Omit<Ingredient, "id" | "quantityOnHand" | "nearestExpiry">>) => Promise<Result>;
   saveRecipe: (recipe: Recipe) => Promise<Result>;
   importCatalog: (input: CatalogImportInput) => Promise<Result>;
+  importCatalogBundle: (input: CatalogBundleImportInput) => Promise<Result>;
   dismissRecommendation: (id: string) => Promise<Result>;
   resetDemo: () => void;
 };
@@ -136,7 +137,7 @@ export function LanluProvider({ children }: { children: React.ReactNode }) {
     const shopId = member.shop_id as string;
     const [menuResult, ingredientResult, lotResult, movementResult, recipeResult, salesResult, recommendationResult] = await Promise.all([
       supabase.from("menu_items").select("id, name, price, active, menu_categories(name)").eq("shop_id", shopId).order("created_at"),
-      supabase.from("ingredients").select("id, name, unit, supplier, reorder_point, unit_cost").eq("shop_id", shopId).order("created_at"),
+      supabase.from("ingredients").select("id, name, unit, supplier, reorder_point, unit_cost, purchase_package_unit, purchase_package_count, purchase_content_quantity, purchase_content_unit, purchase_price, purchase_conversion_factor").eq("shop_id", shopId).order("created_at"),
       supabase.from("inventory_lots").select("id, ingredient_id, quantity_remaining, expires_on, created_at").eq("shop_id", shopId).order("expires_on", { ascending: true, nullsFirst: false }),
       supabase.from("inventory_movements").select("id, ingredient_id, type, quantity, adjustment_delta, occurred_at, note, idempotency_key").eq("shop_id", shopId).order("occurred_at", { ascending: false }).limit(5000),
       supabase.from("recipes").select("id, menu_item_id, version, updated_at, recipe_lines(ingredient_id, quantity)").eq("shop_id", shopId).order("version", { ascending: false }),
@@ -153,7 +154,25 @@ export function LanluProvider({ children }: { children: React.ReactNode }) {
     const expiry = new Map<string, string>();
     lots.filter((lot) => number(lot.quantity_remaining) > 0 && lot.expires_on).forEach((lot) => { if (!expiry.has(lot.ingredient_id)) expiry.set(lot.ingredient_id, lot.expires_on!); });
     const menuItems = (menuResult.data ?? []).map((menu: any) => { const category = Array.isArray(menu.menu_categories) ? menu.menu_categories[0]?.name : menu.menu_categories?.name; return { id: menu.id, name: menu.name, category: (category || "อื่น ๆ") as MenuCategory, price: number(menu.price), active: Boolean(menu.active) }; });
-    const ingredients = (ingredientResult.data ?? []).map((ingredient: any) => ({ id: ingredient.id, name: ingredient.name, unit: ingredient.unit as Ingredient["unit"], supplier: ingredient.supplier ?? undefined, quantityOnHand: Number((quantities.get(ingredient.id) ?? 0).toFixed(3)), reorderPoint: number(ingredient.reorder_point), unitCost: number(ingredient.unit_cost), nearestExpiry: expiry.get(ingredient.id) }));
+    const ingredients = (ingredientResult.data ?? []).map((ingredient: any) => ({
+      id: ingredient.id,
+      name: ingredient.name,
+      unit: ingredient.unit as Ingredient["unit"],
+      supplier: ingredient.supplier ?? undefined,
+      quantityOnHand: Number((quantities.get(ingredient.id) ?? 0).toFixed(3)),
+      reorderPoint: number(ingredient.reorder_point),
+      unitCost: number(ingredient.unit_cost),
+      nearestExpiry: expiry.get(ingredient.id),
+      purchase: ingredient.purchase_package_unit || ingredient.purchase_content_unit ? {
+        packageUnit: ingredient.purchase_package_unit ?? "",
+        packageCount: number(ingredient.purchase_package_count),
+        contentQuantity: number(ingredient.purchase_content_quantity),
+        contentUnit: ingredient.purchase_content_unit ?? ingredient.unit,
+        purchasePrice: number(ingredient.purchase_price),
+        unitCost: number(ingredient.unit_cost),
+        conversionFactor: ingredient.purchase_conversion_factor == null ? undefined : number(ingredient.purchase_conversion_factor),
+      } : undefined,
+    }));
     const seenRecipes = new Set<string>();
     const recipes = ((recipeResult.data ?? []) as Array<{ menu_item_id: string; updated_at: string; version: number; recipe_lines?: Array<{ ingredient_id: string; quantity: number }> }>).filter((recipe) => { if (seenRecipes.has(recipe.menu_item_id)) return false; seenRecipes.add(recipe.menu_item_id); return true; }).map((recipe) => ({ menuItemId: recipe.menu_item_id, updatedAt: recipe.updated_at, lines: (recipe.recipe_lines ?? []).map((line) => ({ ingredientId: line.ingredient_id, quantity: number(line.quantity) })) }));
     const sales = ((salesResult.data ?? []) as Array<{ id: string; business_date: string; occurred_at: string; order_count?: number; idempotency_key: string; sales_lines?: Array<{ menu_item_id: string; quantity: number; price_snapshot: number; cogs_snapshot: number }> }>).map((sale) => ({ id: sale.id, businessDate: sale.business_date, occurredAt: sale.occurred_at, orderCount: sale.order_count, idempotencyKey: sale.idempotency_key, lines: (sale.sales_lines ?? []).map((line) => ({ menuItemId: line.menu_item_id, quantity: line.quantity, priceSnapshot: number(line.price_snapshot), cogsSnapshot: number(line.cogs_snapshot) })) }));
@@ -184,12 +203,30 @@ export function LanluProvider({ children }: { children: React.ReactNode }) {
   const addMenuItem = useCallback(async (input: { name: string; category: MenuCategory; price: number }): Promise<Result> => { if (!state.shop.id) return { ok: false, message: "ตั้งค่าร้านก่อนเพิ่มเมนู" }; const { data: category } = await supabase.from("menu_categories").select("id").eq("shop_id", state.shop.id).eq("name", input.category).maybeSingle(); const { error: insertError } = await supabase.from("menu_items").insert({ shop_id: state.shop.id, category_id: category?.id ?? null, name: input.name.trim(), price: input.price, created_by: user?.id }); if (insertError) return { ok: false, message: messageForError(insertError, "เพิ่มเมนูไม่สำเร็จ") }; await refresh(); return { ok: true, message: "เพิ่มเมนูแล้ว" }; }, [refresh, state.shop.id, supabase, user?.id]);
   const updateMenuItem = useCallback(async (input: Pick<MenuItem, "id"> & Partial<Omit<MenuItem, "id">>): Promise<Result> => { if (!state.shop.id) return { ok: false, message: "ยังไม่มีร้าน" }; const { error: updateError } = await supabase.rpc("update_catalog_master", { target_shop_id: state.shop.id, target_kind: "menu", target_id: input.id, payload: { ...(input.name === undefined ? {} : { name: input.name.trim() }), ...(input.price === undefined ? {} : { price: input.price }), ...(input.active === undefined ? {} : { active: input.active }), ...(input.category === undefined ? {} : { category: input.category }) } }); if (updateError) return { ok: false, message: messageForError(updateError, "แก้ไขเมนูไม่สำเร็จ") }; await refresh(); return { ok: true, message: "แก้ไขเมนูแล้ว" }; }, [refresh, state.shop.id, supabase]);
   const createMenuCategory = useCallback(async (name: string): Promise<Result> => { if (!state.shop.id || !user?.id || !name.trim()) return { ok: false, message: "ใส่ชื่อหมวดก่อน" }; const { error: insertError } = await supabase.from("menu_categories").upsert({ shop_id: state.shop.id, name: name.trim(), created_by: user.id, updated_at: now() }, { onConflict: "shop_id,name" }); if (insertError) return { ok: false, message: messageForError(insertError, "เพิ่มหมวดไม่สำเร็จ") }; return { ok: true, message: `เพิ่มหมวด${name.trim()}แล้ว` }; }, [state.shop.id, supabase, user?.id]);
-  const addIngredient = useCallback(async (input: Omit<Ingredient, "id"> & { openingExpiry?: string }): Promise<Result> => { if (!state.shop.id || !user?.id) return { ok: false, message: "ตั้งค่าร้านก่อนเพิ่มวัตถุดิบ" }; const { data: ingredient, error: insertError } = await supabase.from("ingredients").insert({ shop_id: state.shop.id, name: input.name.trim(), unit: input.unit, reorder_point: input.reorderPoint, unit_cost: input.unitCost, created_by: user.id }).select("id").single(); if (insertError || !ingredient) return { ok: false, message: messageForError(insertError, "เพิ่มวัตถุดิบไม่สำเร็จ") }; if (input.quantityOnHand > 0) { const receipt = await postMovement({ ingredientId: ingredient.id, type: "receipt", quantity: input.quantityOnHand, unitCost: input.unitCost, expiresOn: input.openingExpiry, note: "ยอดเริ่มต้นจากการตั้งค่า", idempotencyKey: randomKey("opening-stock") }); if (!receipt.ok) return receipt; } await refresh(); return { ok: true, message: "เพิ่มวัตถุดิบแล้ว" }; }, [postMovement, refresh, state.shop.id, supabase, user?.id]);
-  const updateIngredient = useCallback(async (input: Pick<Ingredient, "id"> & Partial<Omit<Ingredient, "id" | "quantityOnHand" | "nearestExpiry">>): Promise<Result> => { if (!state.shop.id) return { ok: false, message: "ยังไม่มีร้าน" }; const { error: updateError } = await supabase.rpc("update_catalog_master", { target_shop_id: state.shop.id, target_kind: "ingredient", target_id: input.id, payload: { ...(input.name === undefined ? {} : { name: input.name.trim() }), ...(input.unit === undefined ? {} : { unit: input.unit }), ...(input.supplier === undefined ? {} : { supplier: input.supplier || null }), ...(input.reorderPoint === undefined ? {} : { reorderPoint: input.reorderPoint }), ...(input.unitCost === undefined ? {} : { unitCost: input.unitCost }) } }); if (updateError) return { ok: false, message: messageForError(updateError, "แก้ไขวัตถุดิบไม่สำเร็จ") }; await refresh(); return { ok: true, message: "แก้ไขวัตถุดิบแล้ว" }; }, [refresh, state.shop.id, supabase]);
+  const addIngredient = useCallback(async (input: Omit<Ingredient, "id"> & { openingExpiry?: string }): Promise<Result> => {
+    if (!state.shop.id || !user?.id) return { ok: false, message: "ตั้งค่าร้านก่อนเพิ่มวัตถุดิบ" };
+    const purchase = input.purchase;
+    const { data: ingredient, error: insertError } = await supabase.from("ingredients").insert({ shop_id: state.shop.id, name: input.name.trim(), unit: input.unit, supplier: input.supplier || null, reorder_point: input.reorderPoint, unit_cost: input.unitCost, purchase_package_unit: purchase?.packageUnit || null, purchase_package_count: purchase?.packageCount || null, purchase_content_quantity: purchase?.contentQuantity || null, purchase_content_unit: purchase?.contentUnit || null, purchase_price: purchase?.purchasePrice ?? null, purchase_conversion_factor: purchase?.conversionFactor || null, created_by: user.id }).select("id").single();
+    if (insertError || !ingredient) return { ok: false, message: messageForError(insertError, "เพิ่มวัตถุดิบไม่สำเร็จ") };
+    if (input.quantityOnHand > 0) { const receipt = await postMovement({ ingredientId: ingredient.id, type: "receipt", quantity: input.quantityOnHand, unitCost: input.unitCost, expiresOn: input.openingExpiry, note: "ยอดเริ่มต้นจากการตั้งค่า", idempotencyKey: randomKey("opening-stock") }); if (!receipt.ok) return receipt; }
+    await refresh(); return { ok: true, message: "เพิ่มวัตถุดิบแล้ว" };
+  }, [postMovement, refresh, state.shop.id, supabase, user?.id]);
+  const updateIngredient = useCallback(async (input: Pick<Ingredient, "id"> & Partial<Omit<Ingredient, "id" | "quantityOnHand" | "nearestExpiry">>): Promise<Result> => {
+    if (!state.shop.id) return { ok: false, message: "ยังไม่มีร้าน" };
+    const purchase = input.purchase;
+    const { error: updateError } = await supabase.rpc("update_catalog_master", { target_shop_id: state.shop.id, target_kind: "ingredient", target_id: input.id, payload: { ...(input.name === undefined ? {} : { name: input.name.trim() }), ...(input.unit === undefined ? {} : { unit: input.unit }), ...(input.supplier === undefined ? {} : { supplier: input.supplier || null }), ...(input.reorderPoint === undefined ? {} : { reorderPoint: input.reorderPoint }), ...(input.unitCost === undefined ? {} : { unitCost: input.unitCost }), ...(purchase === undefined ? {} : { packageUnit: purchase.packageUnit, packageCount: purchase.packageCount, contentQuantity: purchase.contentQuantity, contentUnit: purchase.contentUnit, purchasePrice: purchase.purchasePrice, conversionFactor: purchase.conversionFactor ?? null }) } });
+    if (updateError) return { ok: false, message: messageForError(updateError, "แก้ไขวัตถุดิบไม่สำเร็จ") }; await refresh(); return { ok: true, message: "แก้ไขวัตถุดิบแล้ว" };
+  }, [refresh, state.shop.id, supabase]);
   const saveRecipe = useCallback(async (recipe: Recipe): Promise<Result> => { if (!state.shop.id) return { ok: false, message: "ตั้งค่าร้านก่อนบันทึกสูตร" }; const { error: rpcError } = await supabase.rpc("save_recipe", { target_shop_id: state.shop.id, target_menu_item_id: recipe.menuItemId, recipe_lines: recipe.lines }); if (rpcError) return { ok: false, message: messageForError(rpcError, "บันทึกสูตรไม่สำเร็จ") }; await refresh(); return { ok: true, message: "บันทึกสูตรแล้ว" }; }, [refresh, state.shop.id, supabase]);
   const importCatalog = useCallback(async (input: CatalogImportInput): Promise<Result> => { if (!state.shop.id) return { ok: false, message: "ตั้งค่าร้านก่อนนำเข้า" }; const { error: importError } = await supabase.rpc("bulk_import_catalog", { target_shop_id: state.shop.id, import_kind: input.kind, import_rows: input.rows, idempotency_key: input.idempotencyKey, conflict_mode: input.conflictMode }); if (importError) return { ok: false, message: messageForError(importError, "นำเข้าข้อมูลไม่สำเร็จ") }; await refresh(); return { ok: true, message: "นำเข้าข้อมูลเข้า LanLu แล้ว" }; }, [refresh, state.shop.id, supabase]);
+  const importCatalogBundle = useCallback(async (input: CatalogBundleImportInput): Promise<Result> => {
+    if (!state.shop.id) return { ok: false, message: "ตั้งค่าร้านก่อนนำเข้า" };
+    const { error: importError } = await supabase.rpc("bulk_import_catalog_bundle", { target_shop_id: state.shop.id, import_rows: input.bundle.drafts.map((draft) => ({ kind: draft.kind, rows: draft.rows })), idempotency_key: input.idempotencyKey, conflict_mode: input.conflictMode });
+    if (importError) return { ok: false, message: messageForError(importError, "นำเข้าชุด catalog ไม่สำเร็จ") };
+    await refresh(); return { ok: true, message: "นำเข้าชุด catalog แบบ transaction เดียวแล้ว" };
+  }, [refresh, state.shop.id, supabase]);
   const dismissRecommendation = useCallback(async (recommendationId: string): Promise<Result> => { if (recommendationId.startsWith("local-")) { setState((current) => ({ ...current, recommendations: current.recommendations.filter((item) => item.id !== recommendationId) })); return { ok: true, message: "ซ่อนคำแนะนำแล้ว" }; } const { error: updateError } = await supabase.from("recommendations").update({ dismissed_at: now() }).eq("id", recommendationId); if (updateError) return { ok: false, message: messageForError(updateError, "ซ่อนคำแนะนำไม่สำเร็จ") }; await refresh(); return { ok: true, message: "ซ่อนคำแนะนำแล้ว" }; }, [refresh, supabase]);
-  const value = useMemo<LanluContextValue>(() => ({ state, user, loading, hydrated, error, needsOnboarding: Boolean(user && !state.shop.id), refresh, createShop, recordSale, confirmDailyClose, postMovement, updateShop, addMenuItem, updateMenuItem, createMenuCategory, addIngredient, updateIngredient, saveRecipe, importCatalog, dismissRecommendation, resetDemo: () => setState(emptyState) }), [addIngredient, addMenuItem, confirmDailyClose, createMenuCategory, createShop, dismissRecommendation, error, hydrated, importCatalog, loading, postMovement, recordSale, refresh, saveRecipe, state, updateIngredient, updateMenuItem, updateShop, user]);
+  const value = useMemo<LanluContextValue>(() => ({ state, user, loading, hydrated, error, needsOnboarding: Boolean(user && !state.shop.id), refresh, createShop, recordSale, confirmDailyClose, postMovement, updateShop, addMenuItem, updateMenuItem, createMenuCategory, addIngredient, updateIngredient, saveRecipe, importCatalog, importCatalogBundle, dismissRecommendation, resetDemo: () => setState(emptyState) }), [addIngredient, addMenuItem, confirmDailyClose, createMenuCategory, createShop, dismissRecommendation, error, hydrated, importCatalog, importCatalogBundle, loading, postMovement, recordSale, refresh, saveRecipe, state, updateIngredient, updateMenuItem, updateShop, user]);
   return <LanluContext.Provider value={value}>{children}</LanluContext.Provider>;
 }
 

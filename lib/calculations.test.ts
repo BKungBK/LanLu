@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getForecast, getRecipeCost, getStockStatus, sumSaleRevenue } from "./calculations";
+import { getDateRange, getForecast, getRecipeCost, getStockStatus, sumSaleRevenue } from "./calculations";
 import type { Ingredient, Recipe, SaleEntry } from "./types";
 
 const ingredients: Ingredient[] = [{ id: "milk", name: "นม", unit: "ลิตร", quantityOnHand: 5, reorderPoint: 2, unitCost: 50 }];
@@ -19,6 +19,10 @@ describe("LanLu calculations", () => {
     expect(getStockStatus({ ...ingredients[0], quantityOnHand: 3 })).toBe("normal");
     expect(getStockStatus({ ...ingredients[0], quantityOnHand: 1.5 })).toBe("warning");
     expect(getStockStatus({ ...ingredients[0], quantityOnHand: 0 })).toBe("critical");
+  });
+
+  it("builds a date range from an explicit end date", () => {
+    expect(getDateRange("2026-08-23", 3)).toEqual(["2026-08-21", "2026-08-22", "2026-08-23"]);
   });
 
   it("uses a low-confidence fallback when history is short", () => {

@@ -2,21 +2,16 @@
 
 import Link from "next/link";
 import { IconArrowUpRight, IconChartBar, IconCoins, IconCup, IconReceipt } from "@tabler/icons-react";
-import { DEMO_TODAY } from "@/lib/data";
-import { aggregateSalesByDay, formatCurrency, getGrossProfit, getMenuSales, getRevenue, getSaleUnits } from "@/lib/calculations";
+import { aggregateSalesByDay, formatCurrency, getDateRange, getGrossProfit, getMenuSales, getRevenue, getSaleUnits, getTodayInTimezone } from "@/lib/calculations";
 import { useLanlu } from "@/lib/store";
 import { DatePill, KpiCard, MiniLink, PageHeader, SectionCard } from "@/components/ui";
-
-const dates = Array.from({ length: 7 }, (_, index) => {
-  const date = new Date(`${DEMO_TODAY}T12:00:00+07:00`);
-  date.setDate(date.getDate() - (6 - index));
-  return date.toISOString().slice(0, 10);
-});
 
 const dayLabel = (date: string) => new Intl.DateTimeFormat("th-TH", { weekday: "short", day: "numeric" }).format(new Date(`${date}T12:00:00+07:00`));
 
 export function SalesPage() {
-  const { state } = useLanlu();
+  const { state, hydrated } = useLanlu();
+  const today = hydrated ? getTodayInTimezone(state.shop.timezone) : "2000-01-01";
+  const dates = getDateRange(today);
   const chart = aggregateSalesByDay(state.sales, dates);
   const units = getSaleUnits(state.sales);
   const revenue = getRevenue(state.sales);
@@ -24,6 +19,13 @@ export function SalesPage() {
   const menuSales = getMenuSales(state.sales, state.menuItems);
   const max = Math.max(...chart.map((item) => item.units), 1);
   const recent = [...state.sales].reverse().slice(0, 6);
+
+  if (!hydrated) return <>
+    <PageHeader eyebrow="ยอดขาย" title="กำลังเตรียมยอดขาย" description="กำลังโหลดข้อมูลยอดขายที่ยืนยันแล้ว" />
+    <SectionCard title="กำลังโหลดข้อมูล" description="รอสักครู่ ระบบกำลังเตรียมรายงานยอดขายล่าสุด">
+      <div className="data-loading" role="status">กำลังโหลดข้อมูลร้าน…</div>
+    </SectionCard>
+  </>;
 
   return <>
     <PageHeader eyebrow="ยอดขาย" title="ยอดขายของร้าน" description="ดูยอดขายที่ยืนยันแล้ว พร้อม snapshot ราคาและต้นทุนย้อนหลัง" action={<><DatePill /><Link href="/capture" className="button button-primary"><IconReceipt size={15} />บันทึกยอดขาย</Link></>} />

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { IconAlertTriangle, IconCalendarDue, IconPackage, IconPlus, IconReceipt } from "@tabler/icons-react";
+import { IconAlertTriangle, IconCalendarDue, IconClipboardCheck, IconPackage, IconPackageImport, IconPlus } from "@tabler/icons-react";
 import { DEMO_TODAY } from "@/lib/data";
 import { getDaysUntil, getStockStatus } from "@/lib/calculations";
 import { useLanlu } from "@/lib/store";
@@ -27,7 +27,7 @@ export function InventoryPage() {
           {expiring.length ? expiring.map((ingredient) => { const days = getDaysUntil(ingredient.nearestExpiry, new Date(`${DEMO_TODAY}T12:00:00+07:00`)) ?? 0; return <div className="expiry-item" key={ingredient.id}><span className="expiry-icon"><IconCalendarDue size={15} /></span><div><strong>{ingredient.name}</strong><span>เหลือ {ingredient.quantityOnHand} {ingredient.unit} · {days <= 0 ? "หมดอายุแล้ว" : `หมดอายุใน ${days} วัน`}</span></div></div>; }) : <div className="empty-state"><div className="empty-mark"><IconPackage size={22} /></div><h3>ยังไม่มีรายการเร่งด่วน</h3><p>วัตถุดิบทั้งหมดมีวันหมดอายุห่างพอ</p></div>}
         </SectionCard>
         <SectionCard className="expiry-card" title="ทางลัดการบันทึก" description="ทุก movement เก็บผู้บันทึก เวลา และหมายเหตุใน production">
-          <div className="help-list"><div className="expiry-item"><span className="expiry-icon"><IconReceipt size={15} /></span><div><strong>รับของเข้า</strong><span>เพิ่ม lot และวันหมดอายุผ่าน Quick capture</span></div></div><div className="expiry-item"><span className="expiry-icon"><IconAlertTriangle size={15} /></span><div><strong>นับสต๊อกจริง</strong><span>ใช้ adjustment เพื่อรักษา audit trail</span></div></div></div>
+          <div className="help-list"><div className="expiry-item"><span className="expiry-icon"><IconPackageImport size={18} stroke={1.8} /></span><div><strong>รับของเข้า</strong><span>เพิ่ม lot และวันหมดอายุผ่าน Quick capture</span></div></div><div className="expiry-item"><span className="expiry-icon"><IconClipboardCheck size={18} stroke={1.8} /></span><div><strong>นับสต๊อกจริง</strong><span>ใช้ adjustment เพื่อรักษา audit trail</span></div></div></div>
           <Link href="/capture" className="button button-soft" style={{ width: "100%", marginTop: 14 }}><IconPlus size={15} />เปิด Quick capture</Link>
         </SectionCard>
       </div>

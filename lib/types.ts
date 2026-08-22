@@ -1,6 +1,16 @@
 export type MenuCategory = string;
 export type IngredientUnit = string;
 
+export type IngredientPurchaseInfo = {
+  packageUnit: string;
+  packageCount: number;
+  contentQuantity: number;
+  contentUnit: string;
+  purchasePrice: number;
+  unitCost: number;
+  conversionFactor?: number;
+};
+
 export type MenuItem = {
   id: string;
   name: string;
@@ -18,6 +28,7 @@ export type Ingredient = {
   unitCost: number;
   nearestExpiry?: string;
   supplier?: string;
+  purchase?: IngredientPurchaseInfo;
 };
 
 export type RecipeLine = {
@@ -99,9 +110,45 @@ export type CatalogDraft = {
   warnings: string[];
 };
 
+export type CatalogDraftBundle = {
+  source: "gemini" | "csv" | "manual";
+  drafts: CatalogDraft[];
+  warnings: string[];
+};
+
+export type AssistantQuestion = {
+  id: string;
+  label: string;
+  inputType: "text" | "number" | "select";
+  options?: string[];
+};
+
+export type AssistantCalculation = {
+  label: string;
+  value: number;
+  unit: string;
+};
+
+export type CsvMappingSuggestion = {
+  detectedKind: CatalogDraftKind;
+  confidence: number;
+  mapping: Record<string, string>;
+};
+
+export type AssistantTurn =
+  | { status: "question"; message: string; questions: AssistantQuestion[] }
+  | { status: "answer"; message: string; calculations?: AssistantCalculation[]; csvMapping?: CsvMappingSuggestion }
+  | { status: "draft"; message: string; drafts: CatalogDraft[]; warnings: string[] };
+
 export type CatalogImportInput = {
   kind: CatalogDraftKind;
   rows: Array<Record<string, unknown>>;
+  idempotencyKey: string;
+  conflictMode: "create" | "update" | "skip";
+};
+
+export type CatalogBundleImportInput = {
+  bundle: CatalogDraftBundle;
   idempotencyKey: string;
   conflictMode: "create" | "update" | "skip";
 };

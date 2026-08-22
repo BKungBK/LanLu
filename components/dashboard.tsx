@@ -2,28 +2,30 @@
 
 import Link from "next/link";
 import { IconAlertTriangle, IconArrowDownRight, IconArrowUpRight, IconChartDots3, IconCircleCheck, IconCoins, IconCup, IconPackage, IconSparkles } from "@tabler/icons-react";
-import { DEMO_TODAY } from "@/lib/data";
-import { aggregateSalesByDay, formatCurrency, getDashboardMetrics, getMenuSales, getStockStatus } from "@/lib/calculations";
+import { aggregateSalesByDay, formatCurrency, getDashboardMetrics, getDateRange, getMenuSales, getStockStatus, getTodayInTimezone } from "@/lib/calculations";
 import { useLanlu } from "@/lib/store";
 import { ChevronLink, DatePill, KpiCard, MiniLink, PageHeader, RecommendationIcon, RecommendationTag, SectionCard, StatusBadge } from "@/components/ui";
-
-const lastSevenDates = Array.from({ length: 7 }, (_, index) => {
-  const date = new Date(`${DEMO_TODAY}T12:00:00+07:00`);
-  date.setDate(date.getDate() - (6 - index));
-  return date.toISOString().slice(0, 10);
-});
 
 const shortDay = (value: string) => new Intl.DateTimeFormat("th-TH", { weekday: "short" }).format(new Date(`${value}T12:00:00+07:00`)).replace(".", "");
 
 export function Dashboard() {
-  const { state } = useLanlu();
-  const metrics = getDashboardMetrics(state, DEMO_TODAY);
-  const chart = aggregateSalesByDay(state.sales, lastSevenDates);
+  const { state, hydrated } = useLanlu();
+  const today = hydrated ? getTodayInTimezone(state.shop.timezone) : "2000-01-01";
+  const dates = getDateRange(today);
+  const metrics = getDashboardMetrics(state, today);
+  const chart = aggregateSalesByDay(state.sales, dates);
   const maxUnits = Math.max(...chart.map((point) => point.units), 1);
-  const topMenus = getMenuSales(state.sales.filter((sale) => sale.businessDate === DEMO_TODAY), state.menuItems);
+  const topMenus = getMenuSales(state.sales.filter((sale) => sale.businessDate === today), state.menuItems);
   const visibleRecommendations = state.recommendations.filter((item) => !item.dismissed).slice(0, 4);
   const alertIngredients = state.ingredients.filter((ingredient) => getStockStatus(ingredient) !== "normal").slice(0, 4);
   const bestSeller = topMenus[0];
+
+  if (!hydrated) return <>
+    <PageHeader eyebrow="ภาพรวมร้าน" title="กำลังเตรียมภาพรวมร้าน" description="กำลังโหลดข้อมูลร้านของคุณ" />
+    <SectionCard title="กำลังโหลดข้อมูล" description="รอสักครู่ ระบบกำลังเตรียมยอดขายและสต๊อกล่าสุด">
+      <div className="data-loading" role="status">กำลังโหลดข้อมูลร้าน…</div>
+    </SectionCard>
+  </>;
 
   return <>
     <PageHeader eyebrow="ภาพรวมร้าน" title={`สวัสดี ${state.shop.ownerName}`} description="ร้านรู้เห็นอะไรวันนี้ จากข้อมูลที่คุณบันทึกไว้" action={<><DatePill /><Link href="/assistant" className="button button-soft">ลองให้ผู้ช่วยช่วยจัดข้อมูล</Link></>} />

@@ -3,6 +3,15 @@ import type { Ingredient, LanluState, MenuItem, Recipe, SaleEntry } from "./type
 export const formatCurrency = (value: number) =>
   new Intl.NumberFormat("th-TH", { style: "currency", currency: "THB", maximumFractionDigits: 0 }).format(value);
 
+export const getTodayInTimezone = (timeZone = "Asia/Bangkok") =>
+  new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+
+export const getDateRange = (endDate: string, length = 7) => Array.from({ length }, (_, index) => {
+  const date = new Date(`${endDate}T12:00:00+07:00`);
+  date.setDate(date.getDate() - (length - 1 - index));
+  return date.toISOString().slice(0, 10);
+});
+
 export const sumSaleRevenue = (sale: SaleEntry) => sale.lines.reduce((sum, line) => sum + line.quantity * line.priceSnapshot, 0);
 
 export const sumSaleCogs = (sale: SaleEntry) => sale.lines.reduce((sum, line) => sum + line.quantity * line.cogsSnapshot, 0);

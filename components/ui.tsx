@@ -16,7 +16,7 @@ export function PageHeader({ eyebrow, title, description, action }: { eyebrow?: 
   </div>;
 }
 
-export function DatePill({ children = "วันนี้ · 22 ส.ค. 2569" }: { children?: ReactNode }) {
+export function DatePill({ children = "วันนี้" }: { children?: ReactNode }) {
   return <div className="date-pill"><span className="live-dot" />{children}</div>;
 }
 

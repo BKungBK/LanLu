@@ -1,8 +1,8 @@
 ---
 version: 1
-status: complete
+status: in_progress
 task_id: lanlu-catalog-gemini-ui-audit
-updated_at: 2026-08-22T22:35:00+07:00
+updated_at: 2026-08-23T00:55:00+07:00
 ---
 
 # Goal
@@ -32,36 +32,45 @@ Implement the LanLu Catalog + Gemini Assistant and major UI audit plan from the 
 
 # Changed files
 
-- lib/types.ts, lib/catalog.ts, lib/catalog.test.ts
+- lib/types.ts, lib/catalog.ts, lib/catalog.test.ts, lib/store.tsx
+- lib/calculations.ts, lib/calculations.test.ts
 - components/form-controls.tsx, components/assistant-page.tsx
-- components/ingredient-settings.tsx, components/menu-settings.tsx
+- components/dashboard.tsx, components/sales-page.tsx, components/ui.tsx
+- components/ingredient-settings.tsx, components/menu-settings.tsx, components/inventory-page.tsx
 - components/capture-page.tsx, components/app-shell.tsx, components/dashboard.tsx
-- lib/store.tsx, app/api/assistant/route.ts, app/assistant/page.tsx
+- app/api/assistant/route.ts, app/assistant/page.tsx
 - app/globals.css, scripts/audit-production.mjs
 - supabase/migrations/20260822020000_catalog_assistant.sql
+- supabase/migrations/20260822030000_catalog_purchase_bundle.sql
 
 # Tests
 
 - Initial graph index completed.
 - Impeccable context loaded for components/dashboard.tsx.
 - `npm run typecheck` passed.
-- `npm run test` passed: 2 files, 7 tests.
+- `npm run test` passed: 2 files, 10 tests (including package-cost conversion, CSV detection/mapping, and margin suggestions).
 - `npm run build` passed and emitted `/assistant` plus `/api/assistant`.
 - Local Playwright audit passed 17/17 guest checks at desktop/mobile with no horizontal overflow, unnamed controls, console errors, or failed requests.
 - Impeccable detector ran once over changed UI targets and returned `[]`.
 - Final `npm run typecheck`, `npm run test` (7/7), `npm run build`, and local Playwright audit (17/17) passed after the final icon/CSS pass.
 - Codebase graph refreshed after implementation: 374 nodes, 729 edges.
+- Final `npm run typecheck`, `npm run test` (10/10), `npm run build`, and local Playwright audit (17/17) passed after the conversation, costing, bundle, CSV mapping, package form, and icon updates.
+- Codebase graph refreshed after implementation: 409 nodes, 794 edges.
+- Diagnosed production React #418 as date-dependent hydration mismatch in dashboard/sales; removed module-load date dependence and added post-hydration shop-timezone date ranges.
+- Raised audited mobile controls to at least 44px for date fields, edit buttons, assistant tabs, and quick replies.
+- Final typecheck, build, test (11/11), detector (`[]`), and local guest audit (17/17) passed after these fixes.
 
 # Open issues
 
-- Supabase migration has not been applied to a live database in this environment because Supabase CLI is not on PATH.
-- Authenticated Playwright flows need AUDIT_EMAIL/AUDIT_PASSWORD to exercise real RLS/CRUD/Gemini confirmation.
+- Supabase CLI 2.115.0 applied `20260822030000_catalog_purchase_bundle.sql` to linked project `fcladiaymhnioczqpm`; `supabase migration list` confirms all four local migrations match remote.
+- Local Supabase/RLS validation is unavailable because Docker/Podman is not installed.
+- The supplied audit account authenticated successfully against production; no credential was stored in the repository.
 - `npm install` reported 3 high severity dependency audit findings; no `npm audit fix --force` run.
 
 # Latest checkpoint
 
-Implementation and verification are complete for the available environment; authenticated/RLS/production migration checks remain external follow-up.
+Implementation and local verification are complete; remote migration is applied and the source fixes are verified locally. The deployed production build still needs redeployment before the authenticated audit can confirm the fixes.
 
 # Next action
 
-No local action remains. Apply the catalog migration, then run authenticated Playwright/RLS/Gemini checks in the target environment.
+Deploy the current source, then rerun the authenticated production audit against `https://lan-lu.vercel.app`.
