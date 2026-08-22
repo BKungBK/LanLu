@@ -50,7 +50,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <button type="button" className="logout-link logout-button" onClick={async () => { await supabase.auth.signOut(); router.replace("/login"); }}><IconLogout2 size={16} /> ออกจากระบบ</button>
     </aside>
     {mobileNavOpen && <button className="mobile-backdrop" aria-label="ปิดเมนู" onClick={() => setMobileNavOpen(false)} />}
-    <main className="main-content">
+    <main className={`main-content ${pathname === "/" ? "main-content-dashboard" : ""}`}>
       <div className="mobile-topbar"><button type="button" className="mobile-menu-button" aria-label="เปิดเมนู" onClick={() => setMobileNavOpen(true)}><IconMenu2 size={22} /></button><div className="mobile-brand"><span className="brand-mark small">LL</span><strong>LanLu</strong></div><Link href="/capture" className="mobile-capture">+</Link></div>
       <div className="content-wrap">{children}</div>
     </main>
