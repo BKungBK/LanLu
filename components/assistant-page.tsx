@@ -59,6 +59,7 @@ export function AssistantPage() {
   const [feedback, setFeedback] = useState("");
   const [lastFailedPrompt, setLastFailedPrompt] = useState("");
   const [pending, setPending] = useState(false);
+  const pendingRef = useRef(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const context = useMemo(() => ({ ingredients: state.ingredients.filter((ingredient) => ingredient.active !== false).map((ingredient) => ingredient.name), menus: state.menuItems.filter((menu) => !menu.archivedAt).map((menu) => menu.name), units: Array.from(new Set(state.ingredients.filter((ingredient) => ingredient.active !== false).map((ingredient) => ingredient.unit).concat(["g", "kg", "ml", "L", "ชิ้น"]))), categories: Array.from(new Set(state.menuItems.filter((menu) => !menu.archivedAt).map((menu) => menu.category).concat(["กาแฟ", "ชา", "อื่น ๆ"]))) }), [state.ingredients, state.menuItems]);
   const csvValidated = useMemo(() => validateCatalogRows(csvKind, normalizeCatalogRows(csvKind, csvRows), context, conflictMode), [context, conflictMode, csvKind, csvRows]);
@@ -80,11 +81,12 @@ export function AssistantPage() {
 
   const sendMessage = async (value = prompt) => {
     const currentPrompt = value.trim();
-    if (!currentPrompt || pending) return;
+    if (!currentPrompt || pendingRef.current) return;
     const nextConversation = [...messages, { role: "user" as const, text: currentPrompt }].slice(-12);
+    pendingRef.current = true;
     setMessages((current) => [...current, { role: "user", text: currentPrompt }]); setPending(true); setFeedback("");
     const controller = new AbortController();
-    const timeoutId = window.setTimeout(() => controller.abort(), 20_000);
+    const timeoutId = window.setTimeout(() => controller.abort(), 12_000);
     try {
       const response = await fetch("/api/assistant", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: currentPrompt, conversation: nextConversation }), signal: controller.signal });
       const payload = await response.json() as { turn?: AssistantTurn; error?: string };
@@ -100,6 +102,7 @@ export function AssistantPage() {
       setFeedback(error instanceof Error && error.name === "AbortError" ? "ผู้ช่วยใช้เวลานานเกินไป ลองส่งใหม่อีกครั้ง" : "เชื่อมต่อผู้ช่วยไม่สำเร็จ ลองใหม่อีกครั้ง");
     } finally {
       window.clearTimeout(timeoutId);
+      pendingRef.current = false;
       setPending(false);
     }
   };

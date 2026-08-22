@@ -21,8 +21,15 @@ describe("parseSimpleIngredientCommand", () => {
     expect(turn.calculations?.map((item) => item.value)).toEqual([5000, 10, 500, 0.1]);
   });
 
+  it("accepts the shorter prompt used in the assistant composer", () => {
+    const turn = parseSimpleIngredientCommand("เพิ่ม นม 10 ขวด ขวดละ 50 บาทและ 125 ml");
+    expect(turn?.status).toBe("draft");
+    if (!turn || turn.status !== "draft") return;
+    expect(turn.drafts[0].rows[0]).toMatchObject({ name: "นม", quantityOnHand: 1250, contentQuantity: 125, unitCost: 0.4 });
+  });
+
   it("defers ambiguous commands to the normal assistant path", () => {
     expect(parseSimpleIngredientCommand("เพิ่มวัตถุดิบ นม")).toBeNull();
-    expect(parseSimpleIngredientCommand("เพิ่มเมนูลาเต้")).toBeNull();
+    expect(parseSimpleIngredientCommand("เพิ่มเมนู ลาเต้")).toBeNull();
   });
 });

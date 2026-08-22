@@ -2,7 +2,7 @@
 version: 1
 status: complete
 task_id: lanlu-catalog-gemini-ui-audit
-updated_at: 2026-08-23T04:27:30+07:00
+updated_at: 2026-08-23T05:05:28+07:00
 ---
 
 # Goal
@@ -82,8 +82,10 @@ Implement the LanLu Catalog + Gemini Assistant and major UI audit plan from the 
 
 # Latest checkpoint
 
-User confirmed the simplified catalog contract: remove supplier and reorder-point inputs, explain stock unit in plain Thai, keep menu and recipe as one user-facing menu flow, and expose permanent delete as the second step after archive. Implemented the copy/layout pass, strict AI field guidance, and history-safe permanent-delete RPC/UI. Applied and verified the restore and permanent-delete migrations on the linked Supabase project, then pushed commit `742bb5e`.
+Hardened the assistant and catalog layout after the user reported slow/error-prone AI and cramped controls. The deterministic ingredient fast path now accepts both `เพิ่มวัตถุดิบ ...` and `เพิ่ม ...` purchase commands, Gemini uses a valid dynamic JSON Schema with `gemini-2.5-flash-lite` by default, server calls have an 8-second timeout with no SDK retry loop, and duplicate sends are guarded. Fixed menu form action placement, filter/list spacing, and mobile order-count layout.
+
+Verification: typecheck passed, tests passed 14/14, production build passed, warm local guest route audit passed 17/17, and Impeccable detector returned `[]`. Authenticated UI/AI production audit still needs the supplied audit account.
 
 # Next action
 
-Authenticated UI audit still needs the supplied audit account.
+Authenticated UI/AI production audit still needs the supplied audit account; push only after user requests it.

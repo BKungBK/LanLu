@@ -286,6 +286,9 @@ button { cursor: pointer; }
 .capture-ingredient-search { margin: 0 0 10px; }
 .inventory-capture-row strong { display: block; font-size: 11.5px; }
 .inventory-capture-row small { display: block; color: var(--coffee-2); margin-top: 2px; font-size: 9.5px; }
+.order-field { display: grid; grid-template-columns: minmax(0, auto) minmax(150px, 1fr); align-items: center; gap: 9px; margin-top: 13px; }
+.order-field .field-label { min-width: 0; line-height: 1.35; }
+.order-field .compact-input { width: 100%; }
 
 .analytics-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
 .analytics-stat { padding: 13px 14px; background: var(--cream-2); border-radius: 14px; }
@@ -385,6 +388,7 @@ button { cursor: pointer; }
 .form-field.full { grid-column: 1 / -1; }
 .form-field label { display: flex; align-items: center; gap: 6px; color: var(--coffee-2); font-size: 10.5px; }
 .form-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 15px; }
+.form-actions.full { grid-column: 1 / -1; }
 .setting-list { display: grid; gap: 8px; }
 .setting-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 12px; background: var(--cream-2); border-radius: 13px; }
 .setting-row-selected, .setting-row-editing { background: #fff8f0; }
@@ -407,6 +411,7 @@ button { cursor: pointer; }
 .setting-row-button { width: 100%; border: 1px solid transparent; color: inherit; text-align: left; cursor: pointer; }
 .setting-row-button:hover, .setting-row-button.selected { border-color: var(--clay); background: #fff8f0; }
 .settings-stack { display: grid; gap: 18px; }
+.catalog-filters { margin-bottom: 10px; }
 .recipe-lines { display: grid; gap: 9px; }
 .recipe-line { display: grid; grid-template-columns: minmax(0, 1fr) 110px auto; align-items: center; gap: 12px; padding: 10px 11px; background: var(--cream-2); border-radius: 12px; }
 .recipe-line label { min-width: 0; color: var(--coffee); font-size: 11px; }
@@ -531,11 +536,13 @@ button { cursor: pointer; }
   .onboarding-progress { flex-direction: column; align-items: flex-end; }
   .form-grid { grid-template-columns: 1fr; }
   .form-field.full { grid-column: auto; }
+  .form-actions.full { grid-column: auto; }
   .button { min-height: 44px; font-size: 13px; }
   .text-input, .select-input, .date-input { min-height: 44px; height: 44px; font-size: 16px; }
   .capture-mode { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .mode-button { min-height: 44px; font-size: 12px; }
   .stepper button { width: 44px; height: 44px; }
+  .order-field { grid-template-columns: 1fr; gap: 6px; }
   .inventory-item { grid-template-columns: 1fr auto; }
   .inventory-item > .status-badge { grid-column: 2; grid-row: 1; }
   .inventory-item .stock-level { grid-column: 1 / -1; }
