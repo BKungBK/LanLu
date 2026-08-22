@@ -47,6 +47,7 @@ async function auditRoute(page, route, viewportName) {
       return !(element.getAttribute("aria-label") || element.getAttribute("title") || element.textContent?.trim() || element.getAttribute("placeholder") || element.getAttribute("name") || hasAssociatedLabel || (labelledBy && document.getElementById(labelledBy)?.textContent?.trim()));
     }).map((element) => element.outerHTML.slice(0, 180));
     const missingAlt = [...document.querySelectorAll("img")].filter((image) => !image.hasAttribute("alt")).map((image) => image.outerHTML.slice(0, 180));
+    const smallTouchTargets = interactive.filter((element) => { const rect = element.getBoundingClientRect(); return rect.width > 0 && rect.height > 0 && (rect.width < 24 || rect.height < 24); }).map((element) => ({ tag: element.tagName.toLowerCase(), aria: element.getAttribute("aria-label"), text: element.textContent?.trim().slice(0, 30), width: Math.round(element.getBoundingClientRect().width), height: Math.round(element.getBoundingClientRect().height) }));
     const viewportWidth = document.documentElement.clientWidth;
     const scrollWidth = document.documentElement.scrollWidth;
     const resources = performance.getEntriesByType("resource");
@@ -59,6 +60,7 @@ async function auditRoute(page, route, viewportName) {
       expectedMissing: expectedText.filter((text) => !document.body.innerText.includes(text)),
       unnamedInteractive,
       missingAlt,
+      smallTouchTargets,
       viewportWidth,
       scrollWidth,
       horizontalOverflow: scrollWidth > viewportWidth + 1,
@@ -76,6 +78,7 @@ async function auditRoute(page, route, viewportName) {
   if (inspection.horizontalOverflow) issues.push(`horizontal overflow ${inspection.scrollWidth}px > ${inspection.viewportWidth}px`);
   if (inspection.unnamedInteractive.length) issues.push(`${inspection.unnamedInteractive.length} unnamed interactive elements`);
   if (inspection.missingAlt.length) issues.push(`${inspection.missingAlt.length} images missing alt`);
+  if (inspection.smallTouchTargets.length) issues.push(`${inspection.smallTouchTargets.length} interactive targets smaller than 24px`);
   if (consoleErrors.length) issues.push(`${consoleErrors.length} console errors`);
   if (pageErrors.length) issues.push(`${pageErrors.length} page errors`);
   if (failedRequests.length) issues.push(`${failedRequests.length} failed requests`);

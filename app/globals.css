@@ -204,7 +204,7 @@ button { cursor: pointer; }
 .menu-choice-bottom { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-top: 10px; }
 .menu-price { color: var(--clay-dark); font-size: 11px; }
 .stepper { display: inline-flex; align-items: center; gap: 3px; padding: 3px; background: var(--cream-2); border-radius: 10px; }
-.stepper button { display: grid; place-items: center; width: 23px; height: 23px; padding: 0; color: var(--clay-dark); border: 0; border-radius: 7px; background: var(--paper); }
+.stepper button { display: grid; place-items: center; width: 32px; height: 32px; padding: 0; color: var(--clay-dark); border: 0; border-radius: 9px; background: var(--paper); }
 .stepper button:hover { background: #fff; }
 .stepper strong { min-width: 18px; color: var(--coffee); text-align: center; font-size: 11px; }
 .capture-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 17px; margin-top: 17px; border-top: 1px dashed var(--line); }
