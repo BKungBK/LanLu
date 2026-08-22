@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { IconAdjustments, IconCalendarEvent, IconCheck, IconDeviceFloppy, IconInfoCircle, IconPackageImport, IconReceipt, IconRotate2, IconTrash } from "@tabler/icons-react";
+import { IconAdjustments, IconCheck, IconDeviceFloppy, IconInfoCircle, IconPackageImport, IconReceipt, IconRotate2, IconTrash } from "@tabler/icons-react";
 import { formatCurrency } from "@/lib/calculations";
 import { useLanlu } from "@/lib/store";
+import { DateField } from "@/components/form-controls";
 import { DatePill, EmptyState, PageHeader, SectionCard, Stepper } from "@/components/ui";
 
 type CaptureMode = "sales" | "receipt" | "waste" | "adjustment";
@@ -77,7 +78,7 @@ export function CapturePage() {
     <div className="capture-layout">
       <SectionCard className="capture-panel" title="เลือกสิ่งที่ต้องการบันทึก" description="เลือกวันที่ธุรกิจ แล้วระบบจะคำนวณ stock จากสูตรให้อัตโนมัติ">
         <div className="capture-mode" role="tablist" aria-label="ประเภทการบันทึก">{modes.map(({ id, label, icon: Icon }) => <button type="button" role="tab" aria-selected={mode === id} key={id} className={`mode-button ${mode === id ? "active" : ""}`} onClick={() => changeMode(id)}><Icon size={14} /> {label}</button>)}</div>
-        <div className="date-field"><label className="field-label" htmlFor="business-date"><IconCalendarEvent size={14} /> วันที่ข้อมูล</label><input id="business-date" className="date-input" type="date" value={businessDate} onChange={(event) => setBusinessDate(event.target.value)} /></div>
+        <div className="date-field"><DateField id="business-date" label="วันที่ข้อมูล" value={businessDate} onChange={setBusinessDate} /></div>
         {mode === "sales" ? <>
           <p className="menu-prompt">แตะ + / - เพื่อใส่จำนวนแก้วที่ขาย</p>
           {state.menuItems.length === 0 ? <EmptyState title="ยังไม่มีเมนู" description="ไปตั้งค่าเมนูของร้านก่อน แล้วกลับมาบันทึกยอดขาย" actionHref="/settings/menu" actionLabel="ตั้งค่าเมนู" /> : <div className="menu-grid">{state.menuItems.filter((item) => item.active).map((menu) => <div className={`menu-choice ${(menuCounts[menu.id] ?? 0) > 0 ? "selected" : ""}`} key={menu.id}><small>{menu.category}</small><strong>{menu.name}</strong><div className="menu-choice-bottom"><span className="menu-price">{formatCurrency(menu.price)}</span><Stepper value={menuCounts[menu.id] ?? 0} onChange={(value) => setMenuCount(menu.id, value)} /></div></div>)}</div>}
@@ -86,7 +87,7 @@ export function CapturePage() {
         </> : <>
           <p className="menu-prompt">เลือกวัตถุดิบ 1 รายการต่อครั้ง แล้วใส่จำนวน</p>
           {state.ingredients.length === 0 ? <EmptyState title="ยังไม่มีวัตถุดิบ" description="ไปตั้งค่าวัตถุดิบก่อน เพื่อรับเข้าและตัดสต๊อก" actionHref="/settings/ingredients" actionLabel="ตั้งค่าวัตถุดิบ" /> : <div className="inventory-capture-grid">{state.ingredients.map((ingredient) => <div className="inventory-capture-row" key={ingredient.id}><div><strong>{ingredient.name}</strong><small>คงเหลือ {ingredient.quantityOnHand} {ingredient.unit}</small></div><Stepper value={ingredientCounts[ingredient.id] ?? 0} max={9999} onChange={(value) => setIngredientCount(ingredient.id, value)} /></div>)}</div>}
-          {mode === "receipt" && <div className="form-grid capture-lot-fields"><div className="form-field"><label htmlFor="lot-code">รหัสล็อต (ถ้ามี)</label><input id="lot-code" className="text-input" value={lotCode} onChange={(event) => setLotCode(event.target.value)} maxLength={60} /></div><div className="form-field"><label htmlFor="expires-on">วันหมดอายุ (ถ้ามี)</label><input id="expires-on" className="date-input" type="date" value={expiresOn} onChange={(event) => setExpiresOn(event.target.value)} /></div></div>}
+          {mode === "receipt" && <div className="form-grid capture-lot-fields"><div className="form-field"><label htmlFor="lot-code">รหัสล็อต (ถ้ามี)</label><input id="lot-code" className="text-input" value={lotCode} onChange={(event) => setLotCode(event.target.value)} maxLength={60} /></div><DateField id="expires-on" label="วันหมดอายุ (ถ้ามี)" value={expiresOn} onChange={setExpiresOn} /></div>}
         </>}
         <div className="capture-footer"><span className="draft-note"><span className="draft-dot" />บันทึก Draft อัตโนมัติในเครื่อง</span><button type="button" className="button button-primary" onClick={handleSubmit} disabled={pending || loading}><IconDeviceFloppy size={16} />{pending ? "กำลังบันทึก…" : mode === "sales" ? closeDay ? "ยืนยัน Daily close" : "บันทึกยอดขาย" : "บันทึกความเคลื่อนไหว"}</button></div>
         {feedback && <div className="capture-feedback" role="status"><IconCheck size={14} />{feedback}</div>}

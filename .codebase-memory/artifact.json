@@ -1,11 +1,11 @@
 {
     "schema_version": 2,
-    "commit": "cfc5ac7c38dd2d8215e5f172221f62b853b4a3d0",
-    "indexed_at": "2026-08-22T14:13:14Z",
-    "project": "Prototype",
-    "nodes": 316,
-    "edges": 596,
-    "original_size": 2424832,
-    "compressed_size": 283542,
+    "commit": "ca8dc60412ea10cfcbf7318074cc57b532fc5e5d",
+    "indexed_at": "2026-08-22T15:36:00Z",
+    "project": "E-Prototype",
+    "nodes": 249,
+    "edges": 503,
+    "original_size": 2359296,
+    "compressed_size": 268951,
     "compression_level": 3
 }

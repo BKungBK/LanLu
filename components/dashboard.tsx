@@ -26,7 +26,7 @@ export function Dashboard() {
   const bestSeller = topMenus[0];
 
   return <>
-    <PageHeader eyebrow="ภาพรวมร้าน" title={`สวัสดี ${state.shop.ownerName}`} description="ร้านรู้เห็นอะไรวันนี้ จากข้อมูลที่คุณบันทึกไว้" action={<DatePill />} />
+    <PageHeader eyebrow="ภาพรวมร้าน" title={`สวัสดี ${state.shop.ownerName}`} description="ร้านรู้เห็นอะไรวันนี้ จากข้อมูลที่คุณบันทึกไว้" action={<><DatePill /><Link href="/assistant" className="button button-soft">ลองให้ผู้ช่วยช่วยจัดข้อมูล</Link></>} />
 
     <div className="signal-strip" aria-label="ร้านรู้เห็นอะไรวันนี้">
       <div className="signal-item signal-sage"><span className="signal-icon"><IconArrowUpRight size={17} /></span><div><strong>วันนี้ขายดีอะไร</strong><p>{bestSeller ? `${bestSeller.name} · ${bestSeller.units} แก้ว` : "ยังไม่มีข้อมูลยอดขาย"}</p></div></div>

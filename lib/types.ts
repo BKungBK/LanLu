@@ -1,4 +1,5 @@
-export type MenuCategory = "กาแฟ" | "ชา" | "อื่น ๆ";
+export type MenuCategory = string;
+export type IngredientUnit = string;
 
 export type MenuItem = {
   id: string;
@@ -11,7 +12,7 @@ export type MenuItem = {
 export type Ingredient = {
   id: string;
   name: string;
-  unit: "กก." | "ลิตร" | "ชิ้น" | "ถุง" | "ขวด";
+  unit: IngredientUnit;
   quantityOnHand: number;
   reorderPoint: number;
   unitCost: number;
@@ -87,4 +88,20 @@ export type LanluState = {
   sales: SaleEntry[];
   inventoryMovements: InventoryMovement[];
   recommendations: Recommendation[];
+};
+
+export type CatalogDraftKind = "ingredient" | "menu" | "recipe";
+
+export type CatalogDraft = {
+  kind: CatalogDraftKind;
+  source: "gemini" | "csv" | "manual";
+  rows: Array<Record<string, unknown>>;
+  warnings: string[];
+};
+
+export type CatalogImportInput = {
+  kind: CatalogDraftKind;
+  rows: Array<Record<string, unknown>>;
+  idempotencyKey: string;
+  conflictMode: "create" | "update" | "skip";
 };

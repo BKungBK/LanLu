@@ -6,7 +6,7 @@ const email = process.env.AUDIT_EMAIL;
 const password = process.env.AUDIT_PASSWORD;
 const hasCredentials = Boolean(email && password);
 const artifactDir = "artifacts/production-audit";
-const protectedRoutes = ["/", "/capture", "/sales", "/forecast", "/inventory", "/recommendations", "/settings/menu", "/settings/ingredients", "/onboarding"];
+const protectedRoutes = ["/", "/capture", "/sales", "/forecast", "/inventory", "/recommendations", "/settings/menu", "/settings/ingredients", "/assistant", "/onboarding"];
 const auditRoutes = ["/login", "/auth/reset-password", ...protectedRoutes];
 mkdirSync(artifactDir, { recursive: true });
 const results = [];
