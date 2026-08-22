@@ -140,9 +140,9 @@ button { cursor: pointer; }
 .chart-summary strong { color: var(--coffee); font-size: 22px; letter-spacing: -.05em; }
 .chart-summary span { color: var(--sage-dark); font-size: 10px; }
 .sales-chart { display: grid; grid-template-columns: repeat(7, 1fr); align-items: end; gap: 9px; height: 143px; padding-top: 8px; border-bottom: 1px solid var(--line); }
-.bar-column { display: flex; flex-direction: column; justify-content: end; align-items: center; gap: 7px; height: 100%; min-width: 0; }
+.bar-column { display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 7px; height: 100%; min-width: 0; }
 .bar-value { color: var(--coffee-2); font-size: 9.5px; line-height: 1; }
-.bar-track { display: flex; align-items: end; width: min(30px, 68%); height: 106px; }
+.bar-track { display: flex; align-items: flex-end; width: min(30px, 68%); height: 106px; }
 .bar-fill { width: 100%; min-height: 9px; background: var(--clay); border-radius: 9px 9px 3px 3px; transition: height .35s ease; }
 .bar-fill.peak { background: var(--honey); }
 .bar-label { color: var(--coffee-2); font-size: 10px; }
@@ -251,8 +251,8 @@ button { cursor: pointer; }
 .forecast-hero { display: grid; grid-template-columns: 1.2fr .8fr; gap: 14px; margin-bottom: 14px; }
 .forecast-chart-card { min-height: 280px; }
 .forecast-chart { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); align-items: end; gap: 10px; height: 176px; padding-top: 14px; border-bottom: 1px solid var(--line); }
-.forecast-col { display: flex; flex-direction: column; align-items: center; justify-content: end; gap: 7px; height: 100%; }
-.forecast-bars { display: flex; align-items: end; gap: 3px; height: 130px; }
+.forecast-col { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 7px; height: 100%; }
+.forecast-bars { display: flex; align-items: flex-end; gap: 3px; height: 130px; }
 .forecast-bar { width: 13px; min-height: 7px; border-radius: 5px 5px 2px 2px; }
 .forecast-bar.low { background: var(--honey); opacity: .48; }
 .forecast-bar.predicted { background: var(--clay); }
