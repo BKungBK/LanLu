@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useRouter } from "next/navigation";
-import { IconChartBar, IconClipboardData, IconCoffee, IconLayoutDashboard, IconLogout2, IconPackage, IconPlus, IconSparkles, IconToolsKitchen2, IconMenu2, IconX, IconSettings, IconChevronDown } from "@tabler/icons-react";
+import { IconChartBar, IconClipboardData, IconCoffee, IconLayoutDashboard, IconLogout2, IconPackage, IconPlus, IconSparkles, IconToolsKitchen2, IconMenu2, IconX, IconChevronDown } from "@tabler/icons-react";
 import { useState } from "react";
 import type { ReactNode } from "react";
 import { useLanlu } from "@/lib/store";
@@ -15,6 +15,7 @@ const navItems = [
   { href: "/forecast", label: "คาดการณ์", icon: IconClipboardData },
   { href: "/inventory", label: "วัตถุดิบ", icon: IconPackage },
   { href: "/recommendations", label: "คำแนะนำ", icon: IconSparkles },
+  { href: "/settings/menu", label: "เมนูและสูตร", icon: IconToolsKitchen2 },
   { href: "/assistant", label: "ผู้ช่วย", icon: IconSparkles },
 ];
 
@@ -47,7 +48,6 @@ export function AppShell({ children }: { children: ReactNode }) {
       <Link href="/capture" className={`capture-nav ${pathname === "/capture" ? "capture-nav-active" : ""}`} onClick={() => setMobileNavOpen(false)}><span className="capture-nav-icon"><IconPlus size={18} /></span><span><strong>Quick capture</strong><small>บันทึกข้อมูลวันนี้</small></span></Link>
       <div className="side-spacer" />
       <div className="shop-switcher"><div className="shop-avatar">{state.shop.name.slice(0, 1)}</div><div className="shop-meta"><strong>{state.shop.name}</strong><span>อัปเดตล่าสุดวันนี้</span></div><IconChevronDown size={15} /></div>
-      <Link href="/settings/menu" className="settings-link"><IconSettings size={16} /> ตั้งค่าร้าน</Link>
       <button type="button" className="logout-link logout-button" onClick={async () => { await supabase.auth.signOut(); router.replace("/login"); }}><IconLogout2 size={16} /> ออกจากระบบ</button>
     </aside>
     {mobileNavOpen && <button className="mobile-backdrop" aria-label="ปิดเมนู" onClick={() => setMobileNavOpen(false)} />}

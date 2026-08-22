@@ -57,11 +57,12 @@ export function EmptyState({ title, body, description, href = "/capture", action
   </div>;
 }
 
-export function Stepper({ value, onChange, min = 0, max = 99 }: { value: number; onChange: (value: number) => void; min?: number; max?: number }) {
-  return <div className="stepper" aria-label="จำนวน">
-    <button type="button" aria-label="ลดจำนวน" onClick={() => onChange(Math.max(min, value - 1))}><IconMinus size={16} /></button>
+export function Stepper({ value, onChange, min = 0, max = 99, contextLabel, ariaLabel }: { value: number; onChange: (value: number) => void; min?: number; max?: number; contextLabel?: string; ariaLabel?: string }) {
+  const label = ariaLabel ?? contextLabel ?? "จำนวน";
+  return <div className="stepper" aria-label={label}>
+    <button type="button" aria-label={`${label}: ลดจำนวน`} onClick={() => onChange(Math.max(min, value - 1))}><IconMinus size={16} /></button>
     <strong>{value}</strong>
-    <button type="button" aria-label="เพิ่มจำนวน" onClick={() => onChange(Math.min(max, value + 1))}><IconPlus size={16} /></button>
+    <button type="button" aria-label={`${label}: เพิ่มจำนวน`} onClick={() => onChange(Math.min(max, value + 1))}><IconPlus size={16} /></button>
   </div>;
 }
 

@@ -3,6 +3,7 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import type { AssistantTurn, CsvMappingSuggestion } from "@/lib/types";
+import { parseSimpleIngredientCommand } from "@/lib/assistant-parser";
 
 export const runtime = "nodejs";
 
@@ -79,7 +80,7 @@ function normalizeTurn(raw: unknown): AssistantTurn {
   const parsed = turnSchema.parse(raw);
   if (parsed.status === "question") return { status: "question", message: parsed.message, questions: parsed.questions.slice(0, 1) };
   if (parsed.status === "answer") return { status: "answer", message: parsed.message, calculations: parsed.calculations, csvMapping: parsed.csvMapping as CsvMappingSuggestion | undefined };
-  return { status: "draft", message: parsed.message, drafts: parsed.drafts.map((draft) => ({ ...draft, source: "gemini" as const })), warnings: parsed.warnings.concat(parsed.drafts.flatMap((draft) => draft.warnings)) };
+  return { status: "draft", message: parsed.message, calculations: parsed.calculations, drafts: parsed.drafts.map((draft) => ({ ...draft, source: "gemini" as const })), warnings: parsed.warnings.concat(parsed.drafts.flatMap((draft) => draft.warnings)) };
 }
 
 async function generateTurn(ai: GoogleGenAI, model: string, prompt: string) {
@@ -93,6 +94,8 @@ export async function POST(request: Request) {
   if (!user) return NextResponse.json({ error: "ต้องเข้าสู่ระบบก่อนใช้ผู้ช่วย" }, { status: 401 });
   const body = requestSchema.safeParse(await request.json().catch(() => null));
   if (!body.success) return NextResponse.json({ error: "ข้อมูลคำสั่งไม่ถูกต้องหรือยาวเกินกำหนด" }, { status: 400 });
+  const fastPath = parseSimpleIngredientCommand(body.data.message);
+  if (fastPath) return NextResponse.json({ turn: fastPath, ...fastPath });
   if (!process.env.GEMINI_API_KEY) return NextResponse.json({ error: "ยังไม่ได้ตั้งค่า Gemini ฝั่ง server" }, { status: 503 });
   const { data: member, error: memberError } = await supabase.from("shop_members").select("shop_id").eq("user_id", user.id).order("created_at", { ascending: true }).limit(1).maybeSingle();
   if (memberError || !member?.shop_id) return NextResponse.json({ error: "ไม่พบร้านของบัญชีนี้" }, { status: 403 });

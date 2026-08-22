@@ -6,6 +6,11 @@ import { createClient } from "@/lib/supabase/client";
 import type { CatalogBundleImportInput, CatalogImportInput, Ingredient, LanluState, MenuCategory, MenuItem, Recommendation, Recipe, Shop } from "./types";
 
 type Result = { ok: boolean; message: string };
+export type CatalogActionResult = Result & {
+  entity?: "ingredient" | "menu" | "recipe";
+  action?: "archive" | "restore";
+  impact?: string[];
+};
 
 type RecordSaleInput = {
   businessDate: string;
@@ -43,7 +48,8 @@ type LanluContextValue = {
   updateShop: (shop: Partial<Shop>) => Promise<Result>;
   addMenuItem: (input: { name: string; category: MenuCategory; price: number }) => Promise<Result>;
   updateMenuItem: (input: Pick<MenuItem, "id"> & Partial<Omit<MenuItem, "id">>) => Promise<Result>;
-  archiveCatalogItem: (kind: "ingredient" | "menu", id: string) => Promise<Result>;
+  archiveCatalogItem: (kind: "ingredient" | "menu", id: string) => Promise<CatalogActionResult>;
+  restoreCatalogItem: (kind: "ingredient" | "menu", id: string) => Promise<CatalogActionResult>;
   archiveRecipe: (menuItemId: string) => Promise<Result>;
   createMenuCategory: (name: string) => Promise<Result>;
   addIngredient: (input: Omit<Ingredient, "id"> & { openingExpiry?: string }) => Promise<Result>;
@@ -206,7 +212,32 @@ export function LanluProvider({ children }: { children: React.ReactNode }) {
   const updateShop = useCallback(async (shop: Partial<Shop>): Promise<Result> => { if (!state.shop.id) return { ok: false, message: "ยังไม่มีร้าน" }; const { error: updateError } = await supabase.from("shops").update({ name: shop.name, owner_name: shop.ownerName, timezone: shop.timezone, currency: shop.currency, updated_at: now() }).eq("id", state.shop.id); if (updateError) return { ok: false, message: messageForError(updateError, "บันทึกร้านไม่สำเร็จ") }; await refresh(); return { ok: true, message: "บันทึกข้อมูลร้านแล้ว" }; }, [refresh, state.shop.id, supabase]);
   const addMenuItem = useCallback(async (input: { name: string; category: MenuCategory; price: number }): Promise<Result> => { if (!state.shop.id) return { ok: false, message: "ตั้งค่าร้านก่อนเพิ่มเมนู" }; const { data: category } = await supabase.from("menu_categories").select("id").eq("shop_id", state.shop.id).eq("name", input.category).maybeSingle(); const { error: insertError } = await supabase.from("menu_items").insert({ shop_id: state.shop.id, category_id: category?.id ?? null, name: input.name.trim(), price: input.price, created_by: user?.id }); if (insertError) return { ok: false, message: messageForError(insertError, "เพิ่มเมนูไม่สำเร็จ") }; await refresh(); return { ok: true, message: "เพิ่มเมนูแล้ว" }; }, [refresh, state.shop.id, supabase, user?.id]);
   const updateMenuItem = useCallback(async (input: Pick<MenuItem, "id"> & Partial<Omit<MenuItem, "id">>): Promise<Result> => { if (!state.shop.id) return { ok: false, message: "ยังไม่มีร้าน" }; const { error: updateError } = await supabase.rpc("update_catalog_master", { target_shop_id: state.shop.id, target_kind: "menu", target_id: input.id, payload: { ...(input.name === undefined ? {} : { name: input.name.trim() }), ...(input.price === undefined ? {} : { price: input.price }), ...(input.active === undefined ? {} : { active: input.active }), ...(input.category === undefined ? {} : { category: input.category }) } }); if (updateError) return { ok: false, message: messageForError(updateError, "แก้ไขเมนูไม่สำเร็จ") }; await refresh(); return { ok: true, message: "แก้ไขเมนูแล้ว" }; }, [refresh, state.shop.id, supabase]);
-  const archiveCatalogItem = useCallback(async (kind: "ingredient" | "menu", id: string): Promise<Result> => { if (!state.shop.id) return { ok: false, message: "ยังไม่มีร้าน" }; const { error: archiveError } = await supabase.rpc("archive_catalog_item", { target_shop_id: state.shop.id, target_kind: kind, target_id: id }); if (archiveError) return { ok: false, message: messageForError(archiveError, "เก็บรายการออกจากระบบไม่สำเร็จ") }; await refresh(); return { ok: true, message: kind === "ingredient" ? "เก็บวัตถุดิบออกจากรายการแล้ว" : "เก็บเมนูออกจากรายการแล้ว" }; }, [refresh, state.shop.id, supabase]);
+  const archiveCatalogItem = useCallback(async (kind: "ingredient" | "menu", id: string): Promise<CatalogActionResult> => {
+    if (!state.shop.id) return { ok: false, message: "ยังไม่มีร้าน", entity: kind, action: "archive" };
+    const { error: archiveError } = await supabase.rpc("archive_catalog_item", { target_shop_id: state.shop.id, target_kind: kind, target_id: id });
+    if (archiveError) return { ok: false, message: messageForError(archiveError, "เก็บรายการออกจากระบบไม่สำเร็จ"), entity: kind, action: "archive" };
+    await refresh();
+    return {
+      ok: true,
+      message: kind === "ingredient" ? "เก็บวัตถุดิบออกจากรายการแล้ว · ledger และสูตรเดิมยังอยู่" : "เก็บเมนูออกจากรายการแล้ว · ยอดขายและสูตรเดิมยังอยู่",
+      entity: kind,
+      action: "archive",
+      impact: kind === "ingredient" ? ["ledger เดิมไม่ถูกลบ", "สูตรเดิมไม่ถูกลบ", "ไม่แสดงใน Quick capture"] : ["sales snapshot เดิมไม่ถูกลบ", "สูตรเดิมไม่ถูกลบ", "ไม่แสดงใน Quick capture"],
+    };
+  }, [refresh, state.shop.id, supabase]);
+  const restoreCatalogItem = useCallback(async (kind: "ingredient" | "menu", id: string): Promise<CatalogActionResult> => {
+    if (!state.shop.id) return { ok: false, message: "ยังไม่มีร้าน", entity: kind, action: "restore" };
+    const { error: restoreError } = await supabase.rpc("restore_catalog_item", { target_shop_id: state.shop.id, target_kind: kind, target_id: id });
+    if (restoreError) return { ok: false, message: messageForError(restoreError, "เลิกเก็บรายการไม่สำเร็จ"), entity: kind, action: "restore" };
+    await refresh();
+    return {
+      ok: true,
+      message: kind === "ingredient" ? "เลิกเก็บวัตถุดิบแล้ว · กลับมาใช้ในสูตรและ Quick capture ได้" : "เลิกเก็บเมนูแล้ว · กลับมาใช้ใน Quick capture ได้",
+      entity: kind,
+      action: "restore",
+      impact: kind === "ingredient" ? ["ledger เดิมยังอยู่", "สูตรเดิมยังอยู่", "กลับมาแสดงใน Quick capture"] : ["sales snapshot เดิมยังอยู่", "สูตรเดิมยังอยู่", "กลับมาแสดงใน Quick capture"],
+    };
+  }, [refresh, state.shop.id, supabase]);
   const createMenuCategory = useCallback(async (name: string): Promise<Result> => { if (!state.shop.id || !user?.id || !name.trim()) return { ok: false, message: "ใส่ชื่อหมวดก่อน" }; const { error: insertError } = await supabase.from("menu_categories").upsert({ shop_id: state.shop.id, name: name.trim(), created_by: user.id, updated_at: now() }, { onConflict: "shop_id,name" }); if (insertError) return { ok: false, message: messageForError(insertError, "เพิ่มหมวดไม่สำเร็จ") }; return { ok: true, message: `เพิ่มหมวด${name.trim()}แล้ว` }; }, [state.shop.id, supabase, user?.id]);
   const addIngredient = useCallback(async (input: Omit<Ingredient, "id"> & { openingExpiry?: string }): Promise<Result> => {
     if (!state.shop.id || !user?.id) return { ok: false, message: "ตั้งค่าร้านก่อนเพิ่มวัตถุดิบ" };
@@ -232,7 +263,7 @@ export function LanluProvider({ children }: { children: React.ReactNode }) {
     await refresh(); return { ok: true, message: "นำเข้าชุด catalog แบบ transaction เดียวแล้ว" };
   }, [refresh, state.shop.id, supabase]);
   const dismissRecommendation = useCallback(async (recommendationId: string): Promise<Result> => { if (recommendationId.startsWith("local-")) { setState((current) => ({ ...current, recommendations: current.recommendations.filter((item) => item.id !== recommendationId) })); return { ok: true, message: "ซ่อนคำแนะนำแล้ว" }; } const { error: updateError } = await supabase.from("recommendations").update({ dismissed_at: now() }).eq("id", recommendationId); if (updateError) return { ok: false, message: messageForError(updateError, "ซ่อนคำแนะนำไม่สำเร็จ") }; await refresh(); return { ok: true, message: "ซ่อนคำแนะนำแล้ว" }; }, [refresh, supabase]);
-  const value = useMemo<LanluContextValue>(() => ({ state, user, loading, hydrated, error, needsOnboarding: Boolean(user && !state.shop.id), refresh, createShop, recordSale, confirmDailyClose, postMovement, updateShop, addMenuItem, updateMenuItem, archiveCatalogItem, archiveRecipe, createMenuCategory, addIngredient, updateIngredient, saveRecipe, importCatalog, importCatalogBundle, dismissRecommendation, resetDemo: () => setState(emptyState) }), [addIngredient, addMenuItem, archiveCatalogItem, archiveRecipe, confirmDailyClose, createMenuCategory, createShop, dismissRecommendation, error, hydrated, importCatalog, importCatalogBundle, loading, postMovement, recordSale, refresh, saveRecipe, state, updateIngredient, updateMenuItem, updateShop, user]);
+  const value = useMemo<LanluContextValue>(() => ({ state, user, loading, hydrated, error, needsOnboarding: Boolean(user && !state.shop.id), refresh, createShop, recordSale, confirmDailyClose, postMovement, updateShop, addMenuItem, updateMenuItem, archiveCatalogItem, restoreCatalogItem, archiveRecipe, createMenuCategory, addIngredient, updateIngredient, saveRecipe, importCatalog, importCatalogBundle, dismissRecommendation, resetDemo: () => setState(emptyState) }), [addIngredient, addMenuItem, archiveCatalogItem, archiveRecipe, confirmDailyClose, createMenuCategory, createShop, dismissRecommendation, error, hydrated, importCatalog, importCatalogBundle, loading, postMovement, recordSale, refresh, restoreCatalogItem, saveRecipe, state, updateIngredient, updateMenuItem, updateShop, user]);
   return <LanluContext.Provider value={value}>{children}</LanluContext.Provider>;
 }
 

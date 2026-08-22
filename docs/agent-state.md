@@ -67,6 +67,11 @@ Implement the LanLu Catalog + Gemini Assistant and major UI audit plan from the 
 - Applied `20260823010000_catalog_archive.sql` to the linked Supabase project.
 - Added `npm run test:capture`; authenticated production Capture audit passed 8/8 checks across all four tabs on desktop and mobile. Impeccable detector returned `[]` after the UI pass.
 - After Vercel deployment of commit `302eae9`, authenticated production route audit passed `24/24`, Capture tab audit passed `8/8`, and `/api/assistant` returned HTTP 200 with the expected `0.13 บาท/ml` calculation and no page errors.
+- Implemented the fresh Catalog UX pass: Inventory now owns ingredient search, status/expiry filters, inline create/edit, dependency-aware archive, and restore; Menu & recipe is a primary navigation destination and the misleading `ตั้งค่าร้าน` link is removed.
+- Added `Stepper` context labels, selected Capture rows, mode-specific help copy, ingredient search, stronger archive/restore action labels, and the higher-specificity centered expiry icon CSS fix.
+- Added `lib/assistant-parser.ts` deterministic fast path for `เพิ่มวัตถุดิบ นม 10 ขวด ขวดละ 50 บาท และ 500ml`, returning 5,000 ml, 10 bottles, 500 baht total, and 0.10 baht/ml without Gemini; draft calculation summaries and retry-preserved prompts are visible in Assistant.
+- Added `20260823020000_catalog_restore.sql`; restoring is audited, and archiving all active recipe versions prevents an older recipe version from becoming active accidentally.
+- Final verification after this pass: `npm run typecheck` passed, `npm run test` passed 13/13, `npm run build` passed, Impeccable detector returned `[]`, and local guest route audit passed 17/17. Authenticated Capture audit was not rerun because `AUDIT_EMAIL`/`AUDIT_PASSWORD` were unavailable in this session.
 
 # Open issues
 
@@ -77,8 +82,8 @@ Implement the LanLu Catalog + Gemini Assistant and major UI audit plan from the 
 
 # Latest checkpoint
 
-Implementation, migration, deployment, and authenticated production verification are complete.
+Catalog UX and assistant implementation are complete locally; production deployment and authenticated verification remain outside this session.
 
 # Next action
 
-No further action required for this task.
+If continuing, apply the new Supabase migration and rerun authenticated route/Capture audits with the supplied audit account.

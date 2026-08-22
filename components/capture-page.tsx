@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { IconAdjustments, IconCheck, IconDeviceFloppy, IconInfoCircle, IconPackageImport, IconReceipt, IconRotate2, IconTrash } from "@tabler/icons-react";
+import { IconAdjustments, IconCheck, IconDeviceFloppy, IconInfoCircle, IconPackageImport, IconReceipt, IconRotate2, IconSearch, IconTrash } from "@tabler/icons-react";
 import { formatCurrency } from "@/lib/calculations";
 import { useLanlu } from "@/lib/store";
 import { DateField } from "@/components/form-controls";
@@ -21,6 +21,7 @@ export function CapturePage() {
   const [businessDate, setBusinessDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [menuCounts, setMenuCounts] = useState<Record<string, number>>({});
   const [ingredientCounts, setIngredientCounts] = useState<Record<string, number>>({});
+  const [ingredientSearch, setIngredientSearch] = useState("");
   const [orderCount, setOrderCount] = useState(0);
   const [lotCode, setLotCode] = useState("");
   const [expiresOn, setExpiresOn] = useState("");
@@ -49,6 +50,7 @@ export function CapturePage() {
 
   const activeMenus = useMemo(() => state.menuItems.filter((menu) => menu.active && !menu.archivedAt), [state.menuItems]);
   const activeIngredients = useMemo(() => state.ingredients.filter((ingredient) => ingredient.active !== false), [state.ingredients]);
+  const visibleIngredients = useMemo(() => { const search = ingredientSearch.trim().toLocaleLowerCase(); return activeIngredients.filter((ingredient) => !search || [ingredient.name, ingredient.unit, ingredient.supplier ?? ""].some((value) => value.toLocaleLowerCase().includes(search))); }, [activeIngredients, ingredientSearch]);
   const selectedLines = useMemo(() => activeMenus.map((menu) => ({ menuItemId: menu.id, quantity: menuCounts[menu.id] ?? 0 })).filter((line) => line.quantity > 0), [activeMenus, menuCounts]);
   const totalCups = selectedLines.reduce((sum, line) => sum + line.quantity, 0);
   const totalRevenue = selectedLines.reduce((sum, line) => sum + line.quantity * (state.menuItems.find((menu) => menu.id === line.menuItemId)?.price ?? 0), 0);
@@ -75,20 +77,28 @@ export function CapturePage() {
     setPending(false);
   };
 
+  const helpItems = mode === "sales"
+    ? ["ขายเมนูที่ยังไม่มีสูตรได้ ระบบจะแจ้งคุณภาพข้อมูลแยกไว้", "กดซ้ำหรือ retry ได้ เพราะแต่ละรายการมี idempotency key", "ยืนยันครั้งเดียว ระบบตัด stock ตามสูตรให้ทันที"]
+    : mode === "receipt"
+      ? ["รับเข้าได้ทีละรายการ พร้อม lot และวันหมดอายุเพื่อใช้ FEFO", "ถ้ารับซ้ำ ให้ตรวจจำนวนกับ lot ก่อนยืนยัน", "ยืนยันแล้วระบบจะเพิ่ม stock และเก็บ ledger ให้ทันที"]
+      : mode === "waste"
+        ? ["ของเสียจะลด stock แต่ไม่ลบยอดรับเข้าเดิม", "ใส่จำนวนของเสียตามหน่วยฐานของวัตถุดิบ", "ตรวจชื่อวัตถุดิบและจำนวนก่อนยืนยันทุกครั้ง"]
+        : ["Adjustment ใช้แก้ส่วนต่างจากการนับจริง", "ใส่จำนวนที่ต้องการปรับ ไม่ใช่ยอดคงเหลือใหม่", "ทุก adjustment มี audit trail ย้อนดูได้"];
+
   return <>
     <PageHeader eyebrow="บันทึกข้อมูล" title="Quick capture" description="บันทึกข้อมูลย้อนหลังหรือปิดยอดวันนี้ในรอบเดียว" action={<DatePill>Draft เก็บในเครื่อง</DatePill>} />
     <div className="capture-layout">
       <SectionCard className="capture-panel" title="เลือกสิ่งที่ต้องการบันทึก" description="เลือกวันที่ธุรกิจ แล้วระบบจะคำนวณ stock จากสูตรให้อัตโนมัติ">
-        <div className="capture-mode" role="tablist" aria-label="ประเภทการบันทึก">{modes.map(({ id, label, icon: Icon }) => <button type="button" role="tab" aria-selected={mode === id} key={id} className={`mode-button ${mode === id ? "active" : ""}`} onClick={() => changeMode(id)}><Icon size={14} /> {label}</button>)}</div>
+        <div className="capture-mode" role="tablist" aria-label="ประเภทการบันทึก">{modes.map(({ id, label, icon: Icon }) => <button type="button" role="tab" aria-selected={mode === id} key={id} className={`mode-button ${mode === id ? "active" : ""}`} onClick={() => changeMode(id)}><span className="mode-icon"><Icon size={16} /></span><span>{label}</span></button>)}</div>
         <div className="date-field"><DateField id="business-date" label="วันที่ข้อมูล" value={businessDate} onChange={setBusinessDate} /></div>
         {mode === "sales" ? <>
           <p className="menu-prompt">แตะ + / - เพื่อใส่จำนวนแก้วที่ขาย</p>
-          {activeMenus.length === 0 ? <EmptyState title="ยังไม่มีเมนู" description="ไปตั้งค่าเมนูของร้านก่อน แล้วกลับมาบันทึกยอดขาย" actionHref="/settings/menu" actionLabel="ตั้งค่าเมนู" /> : <div className="menu-grid">{activeMenus.map((menu) => <div className={`menu-choice ${(menuCounts[menu.id] ?? 0) > 0 ? "selected" : ""}`} key={menu.id}><small>{menu.category}</small><strong>{menu.name}</strong><div className="menu-choice-bottom"><span className="menu-price">{formatCurrency(menu.price)}</span><Stepper value={menuCounts[menu.id] ?? 0} onChange={(value) => setMenuCount(menu.id, value)} /></div></div>)}</div>}
+          {activeMenus.length === 0 ? <EmptyState title="ยังไม่มีเมนู" description="ไปตั้งค่าเมนูของร้านก่อน แล้วกลับมาบันทึกยอดขาย" actionHref="/settings/menu" actionLabel="ตั้งค่าเมนู" /> : <div className="menu-grid">{activeMenus.map((menu) => <div className={`menu-choice ${(menuCounts[menu.id] ?? 0) > 0 ? "selected" : ""}`} key={menu.id}><small>{menu.category}</small><strong>{menu.name}</strong><div className="menu-choice-bottom"><span className="menu-price">{formatCurrency(menu.price)}</span><Stepper contextLabel={`เพิ่มจำนวน${menu.name}`} value={menuCounts[menu.id] ?? 0} onChange={(value) => setMenuCount(menu.id, value)} /></div></div>)}</div>}
           <div className="order-field"><label className="field-label" htmlFor="order-count">จำนวนรายการขาย <span>(ถ้ามี)</span></label><input id="order-count" className="text-input compact-input" type="number" min="0" placeholder="เช่น 42" value={orderCount || ""} onChange={(event) => setOrderCount(Number(event.target.value))} /></div>
           <label className="close-day-toggle"><input type="checkbox" checked={closeDay} onChange={(event) => setCloseDay(event.target.checked)} /><span><strong>ปิดยอดวันนี้ด้วย</strong><small>สร้าง Daily close และล็อกชุดข้อมูลวันนี้เป็น audit event</small></span></label>
         </> : <>
           <p className="menu-prompt">เลือกวัตถุดิบ 1 รายการต่อครั้ง แล้วใส่จำนวน</p>
-          {activeIngredients.length === 0 ? <EmptyState title="ยังไม่มีวัตถุดิบ" description="ไปตั้งค่าวัตถุดิบก่อน เพื่อรับเข้าและตัดสต๊อก" actionHref="/settings/ingredients" actionLabel="ตั้งค่าวัตถุดิบ" /> : <div className="inventory-capture-grid">{activeIngredients.map((ingredient) => <div className="inventory-capture-row" key={ingredient.id}><div><strong>{ingredient.name}</strong><small>คงเหลือ {ingredient.quantityOnHand} {ingredient.unit}</small></div><Stepper value={ingredientCounts[ingredient.id] ?? 0} max={9999} onChange={(value) => setIngredientCount(ingredient.id, value)} /></div>)}</div>}
+          {activeIngredients.length === 0 ? <EmptyState title="ยังไม่มีวัตถุดิบ" description="ไปเพิ่มวัตถุดิบก่อน เพื่อรับเข้าและตัดสต๊อก" actionHref="/inventory" actionLabel="ไปวัตถุดิบ" /> : <><label className="inventory-search capture-ingredient-search"><IconSearch size={16} /><span className="sr-only">ค้นหาวัตถุดิบในรายการ</span><input value={ingredientSearch} onChange={(event) => setIngredientSearch(event.target.value)} placeholder="ค้นหาวัตถุดิบที่ต้องการบันทึก" /></label><div className="inventory-capture-grid">{visibleIngredients.map((ingredient) => <div className={`inventory-capture-row ${(ingredientCounts[ingredient.id] ?? 0) > 0 ? "selected" : ""}`} key={ingredient.id}><div><strong>{ingredient.name}</strong><small>คงเหลือ {ingredient.quantityOnHand} {ingredient.unit}</small></div><Stepper contextLabel={`เพิ่มจำนวน${ingredient.name}`} value={ingredientCounts[ingredient.id] ?? 0} max={9999} onChange={(value) => setIngredientCount(ingredient.id, value)} /></div>)}{visibleIngredients.length === 0 && <div className="inventory-empty"><IconSearch size={20} /><span>ไม่พบวัตถุดิบจากคำค้นหา</span></div>}</div></>}
           {mode === "receipt" && <div className="form-grid capture-lot-fields"><div className="form-field"><label htmlFor="lot-code">รหัสล็อต (ถ้ามี)</label><input id="lot-code" className="text-input" value={lotCode} onChange={(event) => setLotCode(event.target.value)} maxLength={60} /></div><DateField id="expires-on" label="วันหมดอายุ (ถ้ามี)" value={expiresOn} onChange={setExpiresOn} /></div>}
         </>}
         <div className="capture-footer"><span className="draft-note"><span className="draft-dot" />บันทึก Draft อัตโนมัติในเครื่อง</span><button type="button" className="button button-primary" onClick={handleSubmit} disabled={pending || loading}><IconDeviceFloppy size={16} />{pending ? "กำลังบันทึก…" : mode === "sales" ? closeDay ? "ยืนยัน Daily close" : "บันทึกยอดขาย" : "บันทึกความเคลื่อนไหว"}</button></div>
@@ -96,7 +106,7 @@ export function CapturePage() {
       </SectionCard>
       <div className="capture-summary">
         {mode === "sales" ? <SectionCard className="summary-hero" title="สรุปรอบนี้" description="ตรวจให้ครบก่อนยืนยัน"><span className="summary-label">ยอดขายโดยประมาณ</span><div className="summary-total">{formatCurrency(totalRevenue)}</div><div className="summary-meta">{totalCups} แก้ว · {orderCount || "—"} รายการ</div><div className="summary-list">{selectedLines.length ? selectedLines.map((line) => <div className="summary-line" key={line.menuItemId}><span>{state.menuItems.find((menu) => menu.id === line.menuItemId)?.name}</span><strong>{line.quantity} แก้ว</strong></div>) : <div className="summary-line"><span>ยังไม่ได้เลือกเมนู</span><strong>เริ่มแตะ +</strong></div>}</div></SectionCard> : <SectionCard className="summary-hero" title="สรุปวัตถุดิบ" description="ตรวจจำนวนก่อนบันทึก"><span className="summary-label">จำนวนที่จะบันทึก</span><div className="summary-total">{selectedIngredient?.[1] ?? 0}</div><div className="summary-meta">{selectedIngredient ? state.ingredients.find((ingredient) => ingredient.id === selectedIngredient[0])?.unit : "เลือกวัตถุดิบด้านซ้าย"}</div><div className="summary-list"><div className="summary-line"><span>{selectedIngredient ? state.ingredients.find((ingredient) => ingredient.id === selectedIngredient[0])?.name : "ยังไม่ได้เลือก"}</span><strong>{mode === "receipt" ? "รับเข้า" : mode === "waste" ? "ของเสีย" : "ปรับยอด"}</strong></div></div></SectionCard>}
-        <SectionCard className="capture-help" title="จำไว้นิดหนึ่ง"><ul className="help-list"><li><IconInfoCircle size={15} />ขายเมนูที่ยังไม่มีสูตรได้ ระบบจะแจ้งคุณภาพข้อมูลแยกไว้</li><li><IconRotate2 size={15} />กดซ้ำหรือ retry ได้ เพราะแต่ละรายการมี idempotency key</li><li><IconCheck size={15} />ยืนยันครั้งเดียว ระบบตัด stock ตามสูตรให้ทันที</li></ul></SectionCard>
+        <SectionCard className="capture-help" title="จำไว้นิดหนึ่ง"><ul className="help-list">{helpItems.map((item, index) => <li key={item}>{index === 0 ? <IconInfoCircle size={15} /> : index === 1 ? <IconRotate2 size={15} /> : <IconCheck size={15} />}{item}</li>)}</ul></SectionCard>
       </div>
     </div>
   </>;

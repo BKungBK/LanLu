@@ -116,6 +116,7 @@ export type CatalogDraftBundle = {
   source: "gemini" | "csv" | "manual";
   drafts: CatalogDraft[];
   warnings: string[];
+  calculations?: AssistantCalculation[];
 };
 
 export type AssistantQuestion = {
@@ -140,7 +141,7 @@ export type CsvMappingSuggestion = {
 export type AssistantTurn =
   | { status: "question"; message: string; questions: AssistantQuestion[] }
   | { status: "answer"; message: string; calculations?: AssistantCalculation[]; csvMapping?: CsvMappingSuggestion }
-  | { status: "draft"; message: string; drafts: CatalogDraft[]; warnings: string[] };
+  | { status: "draft"; message: string; drafts: CatalogDraft[]; warnings: string[]; calculations?: AssistantCalculation[] };
 
 export type CatalogImportInput = {
   kind: CatalogDraftKind;
