@@ -1,6 +1,6 @@
 ---
 version: 1
-status: in_progress
+status: complete
 task_id: lanlu-catalog-gemini-ui-audit
 updated_at: 2026-08-23T00:55:00+07:00
 ---
@@ -66,6 +66,7 @@ Implement the LanLu Catalog + Gemini Assistant and major UI audit plan from the 
 - Added audited archive actions for ingredients, menus, and latest recipe versions; hard delete is avoided to preserve ledger, sales, recipe history, and audit events.
 - Applied `20260823010000_catalog_archive.sql` to the linked Supabase project.
 - Added `npm run test:capture`; authenticated production Capture audit passed 8/8 checks across all four tabs on desktop and mobile. Impeccable detector returned `[]` after the UI pass.
+- After Vercel deployment of commit `302eae9`, authenticated production route audit passed `24/24`, Capture tab audit passed `8/8`, and `/api/assistant` returned HTTP 200 with the expected `0.13 บาท/ml` calculation and no page errors.
 
 # Open issues
 
@@ -76,8 +77,8 @@ Implement the LanLu Catalog + Gemini Assistant and major UI audit plan from the 
 
 # Latest checkpoint
 
-Implementation and local verification are complete; archive migration is applied and the pre-deploy Capture audit passes. The new source still needs deployment before the authenticated production audit can confirm the Gemini feedback and archive UI.
+Implementation, migration, deployment, and authenticated production verification are complete.
 
 # Next action
 
-Commit/push the current source, wait for Vercel deployment, then rerun the authenticated production audit against `https://lan-lu.vercel.app`.
+No further action required for this task.
