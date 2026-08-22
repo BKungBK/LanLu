@@ -1,14 +1,15 @@
 "use client";
 
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
-import { initialState } from "./data";
-import { getRecipeCost } from "./calculations";
-import type { Ingredient, LanluState, MenuCategory, Recipe, SaleEntry, Shop } from "./types";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import type { AuthChangeEvent, Session, User } from "@supabase/supabase-js";
+import { createClient } from "@/lib/supabase/client";
+import type { Ingredient, LanluState, MenuCategory, Recommendation, Recipe, Shop } from "./types";
 
-const STORAGE_KEY = "lanlu-mvp-state-v1";
+type Result = { ok: boolean; message: string };
 
 type RecordSaleInput = {
   businessDate: string;
+  occurredAt?: string;
   orderCount?: number;
   lines: Array<{ menuItemId: string; quantity: number }>;
   idempotencyKey: string;
@@ -18,105 +19,169 @@ type PostMovementInput = {
   ingredientId: string;
   type: "receipt" | "consumption" | "waste" | "adjustment";
   quantity: number;
+  adjustmentDelta?: number;
+  occurredAt?: string;
   note?: string;
+  lotCode?: string;
+  expiresOn?: string;
+  unitCost?: number;
   idempotencyKey: string;
 };
 
 type LanluContextValue = {
   state: LanluState;
+  user: { id: string; email?: string } | null;
+  loading: boolean;
   hydrated: boolean;
-  recordSale: (input: RecordSaleInput) => { ok: boolean; message: string };
-  postMovement: (input: PostMovementInput) => { ok: boolean; message: string };
-  updateShop: (shop: Partial<Shop>) => void;
-  addMenuItem: (input: { name: string; category: MenuCategory; price: number }) => void;
-  addIngredient: (input: Omit<Ingredient, "id">) => void;
-  saveRecipe: (recipe: Recipe) => void;
-  dismissRecommendation: (id: string) => void;
+  error: string;
+  needsOnboarding: boolean;
+  refresh: () => Promise<void>;
+  createShop: (input: { name: string; ownerName: string }) => Promise<Result>;
+  recordSale: (input: RecordSaleInput) => Promise<Result>;
+  confirmDailyClose: (input: RecordSaleInput & { note?: string }) => Promise<Result>;
+  postMovement: (input: PostMovementInput) => Promise<Result>;
+  updateShop: (shop: Partial<Shop>) => Promise<Result>;
+  addMenuItem: (input: { name: string; category: MenuCategory; price: number }) => Promise<Result>;
+  addIngredient: (input: Omit<Ingredient, "id"> & { openingExpiry?: string }) => Promise<Result>;
+  saveRecipe: (recipe: Recipe) => Promise<Result>;
+  dismissRecommendation: (id: string) => Promise<Result>;
   resetDemo: () => void;
 };
 
-const LanluContext = createContext<LanluContextValue | null>(null);
+const emptyState: LanluState = {
+  shop: { id: undefined, name: "ร้านของฉัน", ownerName: "", timezone: "Asia/Bangkok", currency: "THB", onboarded: false },
+  menuItems: [],
+  ingredients: [],
+  recipes: [],
+  sales: [],
+  inventoryMovements: [],
+  recommendations: [],
+};
 
-const id = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+const LanluContext = createContext<LanluContextValue | null>(null);
+const number = (value: unknown) => Number(value ?? 0);
+const now = () => new Date().toISOString();
+const randomKey = (prefix: string) => `${prefix}-${crypto.randomUUID()}`;
+
+function messageForError(error: { message?: string } | null, fallback: string) {
+  const message = error?.message ?? "";
+  if (message.includes("shop_access_denied") || message.includes("JWT")) return "เซสชันหมดอายุหรือไม่มีสิทธิ์เข้าถึงร้านนี้";
+  if (message.includes("shop_already_exists")) return "บัญชีนี้มีร้านอยู่แล้ว";
+  if (message.includes("ingredient_access_denied")) return "ไม่พบวัตถุดิบของร้านนี้";
+  if (message.includes("recipe_requires_line")) return "สูตรต้องมีวัตถุดิบอย่างน้อย 1 รายการ";
+  if (message.includes("sale_requires_line")) return "เลือกเมนูอย่างน้อย 1 รายการก่อนบันทึก";
+  if (message.includes("menu_item_not_found")) return "ไม่พบเมนูนี้แล้ว ลองโหลดหน้าใหม่";
+  if (message.includes("duplicate") || message.includes("unique")) return "รายการนี้ถูกบันทึกไปแล้ว";
+  return message || fallback;
+}
+
+function stockStatus(quantityOnHand: number, reorderPoint: number) {
+  if (quantityOnHand <= 0) return "critical" as const;
+  if (quantityOnHand <= reorderPoint) return "warning" as const;
+  return "normal" as const;
+}
+
+function buildRecommendations(state: LanluState) {
+  const createdAt = now();
+  const recommendations: Recommendation[] = state.ingredients.flatMap((ingredient) => {
+    const result: Recommendation[] = [];
+    if (ingredient.quantityOnHand <= ingredient.reorderPoint) {
+      result.push({
+        id: `local-stock-${ingredient.id}`, type: "stock" as const,
+        severity: stockStatus(ingredient.quantityOnHand, ingredient.reorderPoint) === "critical" ? "critical" as const : "warning" as const,
+        title: `${ingredient.name} ต่ำกว่าจุดสั่งซื้อ`,
+        body: `เหลือ ${ingredient.quantityOnHand} ${ingredient.unit} จากจุดสั่งซื้อ ${ingredient.reorderPoint} ${ingredient.unit}`,
+        action: "order_ingredient" as const, createdAt,
+      });
+    }
+    if (ingredient.nearestExpiry) {
+      const days = Math.ceil((new Date(`${ingredient.nearestExpiry}T23:59:59+07:00`).getTime() - Date.now()) / 86400000);
+      if (days <= 7 && ingredient.quantityOnHand > 0) {
+        result.push({
+          id: `local-expiry-${ingredient.id}`, type: "expiry" as const,
+          severity: days <= 2 ? "critical" as const : "warning" as const,
+          title: `ใช้${ingredient.name}ก่อนหมดอายุ`,
+          body: `ล็อตใกล้สุดหมดอายุใน ${Math.max(days, 0)} วัน · เหลือ ${ingredient.quantityOnHand} ${ingredient.unit}`,
+          action: "prepare_ingredient" as const, createdAt,
+        });
+      }
+    }
+    return result;
+  });
+  const missingRecipe = state.menuItems.find((menu) => !state.recipes.some((recipe) => recipe.menuItemId === menu.id));
+  if (missingRecipe) recommendations.push({ id: `local-recipe-${missingRecipe.id}`, type: "sales" as const, severity: "warning" as const, title: `ยังไม่มีสูตร${missingRecipe.name}`, body: "ยอดขายยังบันทึกได้ แต่ระบบยังคำนวณต้นทุนและการใช้วัตถุดิบให้ไม่ได้", action: "setup_recipe" as const, createdAt });
+  if (state.sales.length === 0) recommendations.push({ id: "local-data-quality-sales", type: "sales" as const, severity: "info" as const, title: "เริ่มบันทึกยอดขายเพื่อให้ระบบเห็นแนวโน้ม", body: "ยังไม่มีข้อมูลยอดขายที่ยืนยันแล้ว จึงยังไม่มี forecast หรือ insight จากยอดจริง", action: "promote_menu" as const, createdAt });
+  return recommendations;
+}
 
 export function LanluProvider({ children }: { children: React.ReactNode }) {
-  const [state, setState] = useState<LanluState>(initialState);
+  const supabase = useMemo(() => createClient(), []);
+  const [state, setState] = useState<LanluState>(emptyState);
+  const [user, setUser] = useState<LanluContextValue["user"]>(null);
+  const [loading, setLoading] = useState(true);
   const [hydrated, setHydrated] = useState(false);
+  const [error, setError] = useState("");
+
+  const loadForUser = useCallback(async (currentUser: { id: string; email?: string }) => {
+    setLoading(true);
+    setError("");
+    const { data: member, error: memberError } = await supabase.from("shop_members").select("shop_id, shops(id, name, owner_name, timezone, currency)").eq("user_id", currentUser.id).order("created_at", { ascending: true }).limit(1).maybeSingle();
+    if (memberError) { setError(messageForError(memberError, "โหลดข้อมูลร้านไม่สำเร็จ")); setLoading(false); setHydrated(true); return; }
+    if (!member?.shop_id) { setState(emptyState); setLoading(false); setHydrated(true); return; }
+
+    const shopId = member.shop_id as string;
+    const [menuResult, ingredientResult, lotResult, movementResult, recipeResult, salesResult, recommendationResult] = await Promise.all([
+      supabase.from("menu_items").select("id, name, price, active, menu_categories(name)").eq("shop_id", shopId).order("created_at"),
+      supabase.from("ingredients").select("id, name, unit, reorder_point, unit_cost").eq("shop_id", shopId).order("created_at"),
+      supabase.from("inventory_lots").select("id, ingredient_id, quantity_remaining, expires_on, created_at").eq("shop_id", shopId).order("expires_on", { ascending: true, nullsFirst: false }),
+      supabase.from("inventory_movements").select("id, ingredient_id, type, quantity, adjustment_delta, occurred_at, note, idempotency_key").eq("shop_id", shopId).order("occurred_at", { ascending: false }).limit(5000),
+      supabase.from("recipes").select("id, menu_item_id, version, updated_at, recipe_lines(ingredient_id, quantity)").eq("shop_id", shopId).order("version", { ascending: false }),
+      supabase.from("sales_transactions").select("id, business_date, occurred_at, order_count, idempotency_key, sales_lines(menu_item_id, quantity, price_snapshot, cogs_snapshot)").eq("shop_id", shopId).order("business_date", { ascending: false }).limit(5000),
+      supabase.from("recommendations").select("id, type, severity, title, body, action, source_timestamp, dismissed_at").eq("shop_id", shopId).is("dismissed_at", null).order("created_at", { ascending: false }),
+    ]);
+    const firstError = [menuResult, ingredientResult, lotResult, movementResult, recipeResult, salesResult, recommendationResult].find((result) => result.error)?.error;
+    if (firstError) { setError(messageForError(firstError, "โหลดข้อมูลร้านไม่ครบ")); setLoading(false); setHydrated(true); return; }
+
+    const lots = (lotResult.data ?? []) as Array<{ id: string; ingredient_id: string; quantity_remaining: number; expires_on?: string; created_at: string }>;
+    const movements = (movementResult.data ?? []) as Array<{ id: string; ingredient_id: string; type: "receipt" | "consumption" | "waste" | "adjustment"; quantity: number; adjustment_delta?: number; occurred_at: string; note?: string; idempotency_key: string }>;
+    const quantities = new Map<string, number>();
+    movements.forEach((movement) => { const delta = movement.type === "receipt" ? number(movement.quantity) : movement.type === "adjustment" ? number(movement.adjustment_delta ?? movement.quantity) : -number(movement.quantity); quantities.set(movement.ingredient_id, (quantities.get(movement.ingredient_id) ?? 0) + delta); });
+    const expiry = new Map<string, string>();
+    lots.filter((lot) => number(lot.quantity_remaining) > 0 && lot.expires_on).forEach((lot) => { if (!expiry.has(lot.ingredient_id)) expiry.set(lot.ingredient_id, lot.expires_on!); });
+    const menuItems = (menuResult.data ?? []).map((menu: any) => { const category = Array.isArray(menu.menu_categories) ? menu.menu_categories[0]?.name : menu.menu_categories?.name; return { id: menu.id, name: menu.name, category: (category === "กาแฟ" || category === "ชา" ? category : "อื่น ๆ") as MenuCategory, price: number(menu.price), active: Boolean(menu.active) }; });
+    const ingredients = (ingredientResult.data ?? []).map((ingredient: any) => ({ id: ingredient.id, name: ingredient.name, unit: ingredient.unit as Ingredient["unit"], quantityOnHand: Number((quantities.get(ingredient.id) ?? 0).toFixed(3)), reorderPoint: number(ingredient.reorder_point), unitCost: number(ingredient.unit_cost), nearestExpiry: expiry.get(ingredient.id) }));
+    const seenRecipes = new Set<string>();
+    const recipes = ((recipeResult.data ?? []) as Array<{ menu_item_id: string; updated_at: string; version: number; recipe_lines?: Array<{ ingredient_id: string; quantity: number }> }>).filter((recipe) => { if (seenRecipes.has(recipe.menu_item_id)) return false; seenRecipes.add(recipe.menu_item_id); return true; }).map((recipe) => ({ menuItemId: recipe.menu_item_id, updatedAt: recipe.updated_at, lines: (recipe.recipe_lines ?? []).map((line) => ({ ingredientId: line.ingredient_id, quantity: number(line.quantity) })) }));
+    const sales = ((salesResult.data ?? []) as Array<{ id: string; business_date: string; occurred_at: string; order_count?: number; idempotency_key: string; sales_lines?: Array<{ menu_item_id: string; quantity: number; price_snapshot: number; cogs_snapshot: number }> }>).map((sale) => ({ id: sale.id, businessDate: sale.business_date, occurredAt: sale.occurred_at, orderCount: sale.order_count, idempotencyKey: sale.idempotency_key, lines: (sale.sales_lines ?? []).map((line) => ({ menuItemId: line.menu_item_id, quantity: line.quantity, priceSnapshot: number(line.price_snapshot), cogsSnapshot: number(line.cogs_snapshot) })) }));
+    const loadedState: LanluState = {
+      shop: { id: shopId, name: member.shops?.name ?? "ร้านของฉัน", ownerName: member.shops?.owner_name ?? "", timezone: member.shops?.timezone ?? "Asia/Bangkok", currency: member.shops?.currency ?? "THB", onboarded: true },
+      menuItems, ingredients, recipes, sales,
+      inventoryMovements: movements.map((movement) => ({ id: movement.id, ingredientId: movement.ingredient_id, type: movement.type, quantity: number(movement.quantity), occurredAt: movement.occurred_at, note: movement.note, idempotencyKey: movement.idempotency_key })),
+      recommendations: (recommendationResult.data ?? []).map((recommendation: any) => ({ id: recommendation.id, type: recommendation.type, severity: recommendation.severity, title: recommendation.title, body: recommendation.body, action: recommendation.action, createdAt: recommendation.source_timestamp })),
+    };
+    if (loadedState.recommendations.length === 0) loadedState.recommendations = buildRecommendations(loadedState);
+    setState(loadedState); setLoading(false); setHydrated(true);
+  }, [supabase]);
+
+  const refresh = useCallback(async () => { if (user) await loadForUser(user); }, [loadForUser, user]);
 
   useEffect(() => {
-    try {
-      const saved = window.localStorage.getItem(STORAGE_KEY);
-      if (saved) setState(JSON.parse(saved) as LanluState);
-    } catch {
-      // Keep the seeded state if local storage is unavailable or corrupted.
-    } finally {
-      setHydrated(true);
-    }
-  }, []);
+    let active = true;
+    void supabase.auth.getUser().then(({ data }: { data: { user: User | null } }) => { if (!active) return; const nextUser = data.user ? { id: data.user.id, email: data.user.email } : null; setUser(nextUser); if (nextUser) void loadForUser(nextUser); else { setState(emptyState); setLoading(false); setHydrated(true); } });
+    const { data: listener } = supabase.auth.onAuthStateChange((_event: AuthChangeEvent, session: Session | null) => { const nextUser = session?.user ? { id: session.user.id, email: session.user.email } : null; setUser(nextUser); if (nextUser) void loadForUser(nextUser); else { setState(emptyState); setLoading(false); } });
+    return () => { active = false; listener.subscription.unsubscribe(); };
+  }, [loadForUser, supabase]);
 
-  useEffect(() => {
-    if (hydrated) window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  }, [hydrated, state]);
-
-  const value = useMemo<LanluContextValue>(() => ({
-    state,
-    hydrated,
-    recordSale: (input) => {
-      if (!input.lines.some((line) => line.quantity > 0)) return { ok: false, message: "เลือกเมนูอย่างน้อย 1 รายการก่อนบันทึก" };
-      if (state.sales.some((sale) => sale.idempotencyKey === input.idempotencyKey)) return { ok: true, message: "รายการนี้ถูกบันทึกแล้ว" };
-
-      const now = new Date().toISOString();
-      const lines = input.lines.filter((line) => line.quantity > 0).map((line) => {
-        const menu = state.menuItems.find((item) => item.id === line.menuItemId);
-        const recipe = state.recipes.find((item) => item.menuItemId === line.menuItemId);
-        return {
-          menuItemId: line.menuItemId,
-          quantity: line.quantity,
-          priceSnapshot: menu?.price ?? 0,
-          cogsSnapshot: getRecipeCost(recipe, state.ingredients),
-        };
-      });
-      const sale: SaleEntry = { id: id("sale"), businessDate: input.businessDate, occurredAt: now, orderCount: input.orderCount, lines, idempotencyKey: input.idempotencyKey };
-      const inventoryMovements = lines.flatMap((line) => {
-        const recipe = state.recipes.find((item) => item.menuItemId === line.menuItemId);
-        return recipe?.lines.map((recipeLine) => ({
-          id: id("movement"), ingredientId: recipeLine.ingredientId, type: "consumption" as const,
-          quantity: recipeLine.quantity * line.quantity, occurredAt: now,
-          note: `ตัดจากยอดขาย ${state.menuItems.find((item) => item.id === line.menuItemId)?.name ?? "เมนู"}`,
-          idempotencyKey: `${input.idempotencyKey}-${line.menuItemId}-${recipeLine.ingredientId}`,
-        })) ?? [];
-      });
-      setState((current) => ({
-        ...current,
-        sales: [...current.sales, sale],
-        ingredients: current.ingredients.map((ingredient) => {
-          const used = inventoryMovements.filter((movement) => movement.ingredientId === ingredient.id).reduce((sum, movement) => sum + movement.quantity, 0);
-          return used ? { ...ingredient, quantityOnHand: Number((ingredient.quantityOnHand - used).toFixed(3)) } : ingredient;
-        }),
-        inventoryMovements: [...current.inventoryMovements, ...inventoryMovements],
-      }));
-      return { ok: true, message: "บันทึกยอดขายและตัดสต๊อกตามสูตรแล้ว" };
-    },
-    postMovement: (input) => {
-      if (input.quantity <= 0) return { ok: false, message: "ใส่จำนวนให้มากกว่า 0" };
-      if (state.inventoryMovements.some((movement) => movement.idempotencyKey === input.idempotencyKey)) return { ok: true, message: "รายการนี้ถูกบันทึกแล้ว" };
-      const direction = input.type === "receipt" ? 1 : input.type === "adjustment" ? 1 : -1;
-      const movement = { id: id("movement"), ...input, occurredAt: new Date().toISOString() };
-      setState((current) => ({
-        ...current,
-        inventoryMovements: [...current.inventoryMovements, movement],
-        ingredients: current.ingredients.map((ingredient) => ingredient.id === input.ingredientId ? { ...ingredient, quantityOnHand: Number((ingredient.quantityOnHand + input.quantity * direction).toFixed(3)) } : ingredient),
-      }));
-      return { ok: true, message: input.type === "receipt" ? "รับวัตถุดิบเข้าสต๊อกแล้ว" : "บันทึกความเคลื่อนไหวแล้ว" };
-    },
-    updateShop: (shop) => setState((current) => ({ ...current, shop: { ...current.shop, ...shop } })),
-    addMenuItem: (input) => setState((current) => ({ ...current, menuItems: [...current.menuItems, { id: id("menu"), ...input, active: true }] })),
-    addIngredient: (input) => setState((current) => ({ ...current, ingredients: [...current.ingredients, { id: id("ingredient"), ...input }] })),
-    saveRecipe: (recipe) => setState((current) => ({ ...current, recipes: [...current.recipes.filter((item) => item.menuItemId !== recipe.menuItemId), recipe] })),
-    dismissRecommendation: (recommendationId) => setState((current) => ({ ...current, recommendations: current.recommendations.map((item) => item.id === recommendationId ? { ...item, dismissed: true } : item) })),
-    resetDemo: () => setState(initialState),
-  }), [hydrated, state]);
-
+  const createShop = useCallback(async (input: { name: string; ownerName: string }): Promise<Result> => { const { error: rpcError } = await supabase.rpc("create_shop_with_defaults", { shop_name: input.name, shop_owner_name: input.ownerName }); if (rpcError) return { ok: false, message: messageForError(rpcError, "สร้างร้านไม่สำเร็จ") }; await refresh(); return { ok: true, message: "สร้างร้านแล้ว" }; }, [refresh, supabase]);
+  const recordSale = useCallback(async (input: RecordSaleInput): Promise<Result> => { if (!state.shop.id) return { ok: false, message: "ตั้งค่าร้านก่อนบันทึกยอดขาย" }; if (!input.lines.some((line) => line.quantity > 0)) return { ok: false, message: "เลือกเมนูอย่างน้อย 1 รายการก่อนบันทึก" }; const { error: rpcError } = await supabase.rpc("record_sales_batch", { target_shop_id: state.shop.id, business_date: input.businessDate, occurred_at: input.occurredAt ?? now(), order_count: input.orderCount ?? null, sale_lines: input.lines, idempotency_key: input.idempotencyKey }); if (rpcError) return { ok: false, message: messageForError(rpcError, "บันทึกยอดขายไม่สำเร็จ") }; await refresh(); return { ok: true, message: "บันทึกยอดขายและตัดสต๊อกตามสูตรแล้ว" }; }, [refresh, state.shop.id, supabase]);
+  const confirmDailyClose = useCallback(async (input: RecordSaleInput & { note?: string }): Promise<Result> => { if (!state.shop.id) return { ok: false, message: "ตั้งค่าร้านก่อนปิดยอด" }; if (!input.lines.some((line) => line.quantity > 0)) return { ok: false, message: "เลือกเมนูอย่างน้อย 1 รายการก่อนปิดยอด" }; const { error: rpcError } = await supabase.rpc("confirm_daily_close", { target_shop_id: state.shop.id, business_date: input.businessDate, occurred_at: input.occurredAt ?? now(), order_count: input.orderCount ?? null, sale_lines: input.lines, note: input.note ?? "ยืนยัน Daily close จาก Quick capture", idempotency_key: input.idempotencyKey }); if (rpcError) return { ok: false, message: messageForError(rpcError, "ยืนยัน Daily close ไม่สำเร็จ") }; await refresh(); return { ok: true, message: "ยืนยัน Daily close และตัดสต๊อกแล้ว" }; }, [refresh, state.shop.id, supabase]);
+  const postMovement = useCallback(async (input: PostMovementInput): Promise<Result> => { if (!state.shop.id) return { ok: false, message: "ตั้งค่าร้านก่อนบันทึกสต๊อก" }; if (input.quantity <= 0) return { ok: false, message: "ใส่จำนวนให้มากกว่า 0" }; const { error: rpcError } = await supabase.rpc("post_inventory_movement", { target_shop_id: state.shop.id, target_ingredient_id: input.ingredientId, movement_type: input.type, movement_quantity: input.quantity, occurred_at: input.occurredAt ?? now(), note: input.note ?? null, idempotency_key: input.idempotencyKey, lot_code: input.lotCode ?? null, expires_on: input.expiresOn ?? null, unit_cost: input.unitCost ?? null, adjustment_delta: input.adjustmentDelta ?? null }); if (rpcError) return { ok: false, message: messageForError(rpcError, "บันทึกความเคลื่อนไหวไม่สำเร็จ") }; await refresh(); return { ok: true, message: input.type === "receipt" ? "รับวัตถุดิบเข้าสต๊อกแล้ว" : "บันทึกความเคลื่อนไหวแล้ว" }; }, [refresh, state.shop.id, supabase]);
+  const updateShop = useCallback(async (shop: Partial<Shop>): Promise<Result> => { if (!state.shop.id) return { ok: false, message: "ยังไม่มีร้าน" }; const { error: updateError } = await supabase.from("shops").update({ name: shop.name, owner_name: shop.ownerName, timezone: shop.timezone, currency: shop.currency, updated_at: now() }).eq("id", state.shop.id); if (updateError) return { ok: false, message: messageForError(updateError, "บันทึกร้านไม่สำเร็จ") }; await refresh(); return { ok: true, message: "บันทึกข้อมูลร้านแล้ว" }; }, [refresh, state.shop.id, supabase]);
+  const addMenuItem = useCallback(async (input: { name: string; category: MenuCategory; price: number }): Promise<Result> => { if (!state.shop.id) return { ok: false, message: "ตั้งค่าร้านก่อนเพิ่มเมนู" }; const { data: category } = await supabase.from("menu_categories").select("id").eq("shop_id", state.shop.id).eq("name", input.category).maybeSingle(); const { error: insertError } = await supabase.from("menu_items").insert({ shop_id: state.shop.id, category_id: category?.id ?? null, name: input.name.trim(), price: input.price, created_by: user?.id }); if (insertError) return { ok: false, message: messageForError(insertError, "เพิ่มเมนูไม่สำเร็จ") }; await refresh(); return { ok: true, message: "เพิ่มเมนูแล้ว" }; }, [refresh, state.shop.id, supabase, user?.id]);
+  const addIngredient = useCallback(async (input: Omit<Ingredient, "id"> & { openingExpiry?: string }): Promise<Result> => { if (!state.shop.id || !user?.id) return { ok: false, message: "ตั้งค่าร้านก่อนเพิ่มวัตถุดิบ" }; const { data: ingredient, error: insertError } = await supabase.from("ingredients").insert({ shop_id: state.shop.id, name: input.name.trim(), unit: input.unit, reorder_point: input.reorderPoint, unit_cost: input.unitCost, created_by: user.id }).select("id").single(); if (insertError || !ingredient) return { ok: false, message: messageForError(insertError, "เพิ่มวัตถุดิบไม่สำเร็จ") }; if (input.quantityOnHand > 0) { const receipt = await postMovement({ ingredientId: ingredient.id, type: "receipt", quantity: input.quantityOnHand, unitCost: input.unitCost, expiresOn: input.openingExpiry, note: "ยอดเริ่มต้นจากการตั้งค่า", idempotencyKey: randomKey("opening-stock") }); if (!receipt.ok) return receipt; } await refresh(); return { ok: true, message: "เพิ่มวัตถุดิบแล้ว" }; }, [postMovement, refresh, state.shop.id, supabase, user?.id]);
+  const saveRecipe = useCallback(async (recipe: Recipe): Promise<Result> => { if (!state.shop.id) return { ok: false, message: "ตั้งค่าร้านก่อนบันทึกสูตร" }; const { error: rpcError } = await supabase.rpc("save_recipe", { target_shop_id: state.shop.id, target_menu_item_id: recipe.menuItemId, recipe_lines: recipe.lines }); if (rpcError) return { ok: false, message: messageForError(rpcError, "บันทึกสูตรไม่สำเร็จ") }; await refresh(); return { ok: true, message: "บันทึกสูตรแล้ว" }; }, [refresh, state.shop.id, supabase]);
+  const dismissRecommendation = useCallback(async (recommendationId: string): Promise<Result> => { if (recommendationId.startsWith("local-")) { setState((current) => ({ ...current, recommendations: current.recommendations.filter((item) => item.id !== recommendationId) })); return { ok: true, message: "ซ่อนคำแนะนำแล้ว" }; } const { error: updateError } = await supabase.from("recommendations").update({ dismissed_at: now() }).eq("id", recommendationId); if (updateError) return { ok: false, message: messageForError(updateError, "ซ่อนคำแนะนำไม่สำเร็จ") }; await refresh(); return { ok: true, message: "ซ่อนคำแนะนำแล้ว" }; }, [refresh, supabase]);
+  const value = useMemo<LanluContextValue>(() => ({ state, user, loading, hydrated, error, needsOnboarding: Boolean(user && !state.shop.id), refresh, createShop, recordSale, confirmDailyClose, postMovement, updateShop, addMenuItem, addIngredient, saveRecipe, dismissRecommendation, resetDemo: () => setState(emptyState) }), [addIngredient, addMenuItem, confirmDailyClose, createShop, dismissRecommendation, error, hydrated, loading, postMovement, recordSale, refresh, saveRecipe, state, updateShop, user]);
   return <LanluContext.Provider value={value}>{children}</LanluContext.Provider>;
 }
 

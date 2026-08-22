@@ -48,12 +48,12 @@ export function MiniLink({ href, children }: { href: string; children: ReactNode
   return <Link href={href} className="mini-link">{children}<IconArrowUpRight size={15} /></Link>;
 }
 
-export function EmptyState({ title, body, href = "/capture", action = "ไป Quick capture" }: { title: string; body: string; href?: string; action?: string }) {
+export function EmptyState({ title, body, description, href = "/capture", action = "ไป Quick capture", actionHref, actionLabel }: { title: string; body?: string; description?: string; href?: string; action?: string; actionHref?: string; actionLabel?: string }) {
   return <div className="empty-state">
     <div className="empty-mark"><IconInfoCircle size={23} /></div>
     <h3>{title}</h3>
-    <p>{body}</p>
-    <Link href={href} className="button button-primary"><IconPlus size={16} />{action}</Link>
+    <p>{body ?? description}</p>
+    <Link href={actionHref ?? href} className="button button-primary"><IconPlus size={16} />{actionLabel ?? action}</Link>
   </div>;
 }
 

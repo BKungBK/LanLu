@@ -1,11 +1,11 @@
 {
     "schema_version": 2,
-    "commit": "HEAD",
-    "indexed_at": "2026-08-22T11:20:14Z",
-    "project": "E-Prototype",
-    "nodes": 212,
-    "edges": 439,
+    "commit": "173781ee5bfc73257efa38a61068c56aab1310d0",
+    "indexed_at": "2026-08-22T12:34:53Z",
+    "project": "LanLu",
+    "nodes": 217,
+    "edges": 444,
     "original_size": 1572864,
-    "compressed_size": 188175,
+    "compressed_size": 188528,
     "compression_level": 9
 }

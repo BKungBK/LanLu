@@ -71,6 +71,7 @@ export type Recommendation = {
 };
 
 export type Shop = {
+  id?: string;
   name: string;
   ownerName: string;
   timezone: string;

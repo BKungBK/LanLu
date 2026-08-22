@@ -12,7 +12,7 @@ enabled = true
 [auth]
 enabled = true
 site_url = "http://localhost:3000"
-additional_redirect_urls = ["http://localhost:3000/auth/callback"]
+additional_redirect_urls = ["http://localhost:3000/auth/callback", "https://lan-lu.vercel.app/auth/callback"]
 
 [storage]
 enabled = true

@@ -1,6 +1,6 @@
 import type { LanluState } from "./types";
 
-export const DEMO_TODAY = "2026-08-22";
+export const DEMO_TODAY = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
 
 const date = (dayOffset: number) => {
   const value = new Date(`${DEMO_TODAY}T12:00:00+07:00`);

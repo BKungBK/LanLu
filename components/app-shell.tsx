@@ -2,10 +2,12 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { IconChartBar, IconClipboardData, IconCoffee, IconLayoutDashboard, IconLogout2, IconPackage, IconSparkles, IconToolsKitchen2, IconMenu2, IconX, IconSettings, IconChevronDown } from "@tabler/icons-react";
 import { useState } from "react";
 import type { ReactNode } from "react";
 import { useLanlu } from "@/lib/store";
+import { createClient } from "@/lib/supabase/client";
 
 const navItems = [
   { href: "/", label: "ภาพรวมร้าน", icon: IconLayoutDashboard },
@@ -17,9 +19,11 @@ const navItems = [
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
+  const supabase = createClient();
   const { state } = useLanlu();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  const isPlain = pathname === "/login" || pathname === "/onboarding";
+  const isPlain = pathname === "/login" || pathname === "/onboarding" || pathname === "/auth/reset-password";
 
   if (isPlain) return <>{children}</>;
 
@@ -43,7 +47,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <div className="side-spacer" />
       <div className="shop-switcher"><div className="shop-avatar">{state.shop.name.slice(0, 1)}</div><div className="shop-meta"><strong>{state.shop.name}</strong><span>อัปเดตล่าสุดวันนี้</span></div><IconChevronDown size={15} /></div>
       <Link href="/settings/menu" className="settings-link"><IconSettings size={16} /> ตั้งค่าร้าน</Link>
-      <Link href="/login" className="logout-link"><IconLogout2 size={16} /> ออกจากระบบ</Link>
+      <button type="button" className="logout-link logout-button" onClick={async () => { await supabase.auth.signOut(); router.replace("/login"); }}><IconLogout2 size={16} /> ออกจากระบบ</button>
     </aside>
     {mobileNavOpen && <button className="mobile-backdrop" aria-label="ปิดเมนู" onClick={() => setMobileNavOpen(false)} />}
     <main className="main-content">

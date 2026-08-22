@@ -8,3 +8,8 @@ out/
 *.tsbuildinfo
 supabase/.temp/
 artifacts/
+
+<!-- codex-project-memory:start -->
+# Codex project-memory runtime
+/.task-runtime/
+<!-- codex-project-memory:end -->
