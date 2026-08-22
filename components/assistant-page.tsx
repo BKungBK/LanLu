@@ -59,7 +59,7 @@ export function AssistantPage() {
   const [feedback, setFeedback] = useState("");
   const [pending, setPending] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
-  const context = useMemo(() => ({ ingredients: state.ingredients.map((ingredient) => ingredient.name), menus: state.menuItems.map((menu) => menu.name), units: Array.from(new Set(state.ingredients.map((ingredient) => ingredient.unit).concat(["g", "kg", "ml", "L", "ชิ้น"]))), categories: Array.from(new Set(state.menuItems.map((menu) => menu.category).concat(["กาแฟ", "ชา", "อื่น ๆ"]))) }), [state.ingredients, state.menuItems]);
+  const context = useMemo(() => ({ ingredients: state.ingredients.filter((ingredient) => ingredient.active !== false).map((ingredient) => ingredient.name), menus: state.menuItems.filter((menu) => !menu.archivedAt).map((menu) => menu.name), units: Array.from(new Set(state.ingredients.filter((ingredient) => ingredient.active !== false).map((ingredient) => ingredient.unit).concat(["g", "kg", "ml", "L", "ชิ้น"]))), categories: Array.from(new Set(state.menuItems.filter((menu) => !menu.archivedAt).map((menu) => menu.category).concat(["กาแฟ", "ชา", "อื่น ๆ"]))) }), [state.ingredients, state.menuItems]);
   const csvValidated = useMemo(() => validateCatalogRows(csvKind, normalizeCatalogRows(csvKind, csvRows), context, conflictMode), [context, conflictMode, csvKind, csvRows]);
   const csvHasErrors = csvValidated.some((row) => (row._errors as string[]).length > 0);
   const pricingSuggestions = useMemo(() => {
@@ -69,7 +69,7 @@ export function AssistantPage() {
     const costs = new Map<string, number>();
     for (const row of recipeDraft.rows) {
       const menuName = String(row.menuName ?? "").trim();
-      const ingredient = state.ingredients.find((item) => item.name.toLocaleLowerCase() === String(row.ingredientName ?? "").trim().toLocaleLowerCase());
+      const ingredient = state.ingredients.find((item) => item.active !== false && item.name.toLocaleLowerCase() === String(row.ingredientName ?? "").trim().toLocaleLowerCase());
       const factor = ingredient ? getUnitConversionFactor(String(row.unit ?? ingredient.unit), ingredient.unit) : null;
       if (!menuName || !ingredient || factor === null) continue;
       costs.set(menuName, (costs.get(menuName) ?? 0) + Number(row.quantity ?? 0) * factor * ingredient.unitCost);
@@ -82,15 +82,21 @@ export function AssistantPage() {
     if (!currentPrompt || pending) return;
     const nextConversation = [...messages, { role: "user" as const, text: currentPrompt }].slice(-12);
     setPrompt(""); setMessages((current) => [...current, { role: "user", text: currentPrompt }]); setPending(true); setFeedback("");
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 45_000);
     try {
-      const response = await fetch("/api/assistant", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: currentPrompt, conversation: nextConversation }) });
+      const response = await fetch("/api/assistant", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: currentPrompt, conversation: nextConversation }), signal: controller.signal });
       const payload = await response.json() as { turn?: AssistantTurn; error?: string };
       if (!response.ok || !payload.turn) { setFeedback(payload.error ?? "ผู้ช่วยตอบไม่สำเร็จ"); return; }
       const turn = payload.turn;
       setMessages((current) => [...current, { role: "assistant", text: turn.message, turn }]);
       if (turn.status === "draft") setBundle({ source: "gemini", drafts: turn.drafts, warnings: turn.warnings });
-    } catch { setFeedback("เชื่อมต่อผู้ช่วยไม่สำเร็จ ลองใหม่อีกครั้ง"); }
-    finally { setPending(false); }
+    } catch (error) {
+      setFeedback(error instanceof Error && error.name === "AbortError" ? "ผู้ช่วยใช้เวลานานเกินไป ลองส่งใหม่อีกครั้ง" : "เชื่อมต่อผู้ช่วยไม่สำเร็จ ลองใหม่อีกครั้ง");
+    } finally {
+      window.clearTimeout(timeoutId);
+      setPending(false);
+    }
   };
 
   const confirmBundle = async () => {
@@ -134,7 +140,7 @@ export function AssistantPage() {
       <SectionCard className="assistant-chat" title="คุยกับผู้ช่วย" description="ถามต้นทุนหรือสั่งเพิ่มข้อมูลได้เลย · Gemini ไม่มีสิทธิ์บันทึกฐานข้อมูล">
         <div className="assistant-messages">{messages.map((message, index) => <div className={`assistant-message ${message.role === "user" ? "user" : ""}`} key={`${message.role}-${index}`}><strong>{message.role === "user" ? "คุณ" : "Gemini"}</strong><div>{message.text}</div><QuestionBlock turn={message.turn} values={questionDrafts} onChange={(id, value) => setQuestionDrafts((current) => ({ ...current, [id]: value }))} onAnswer={(value) => void sendMessage(value)} />{message.turn?.status === "answer" && message.turn.calculations?.length ? <div className="assistant-calculations">{message.turn.calculations.map((calculation) => <span key={`${calculation.label}-${calculation.value}`}><strong>{calculation.value}</strong> {calculation.unit}<small>{calculation.label}</small></span>)}</div> : null}</div>)}</div>
         <div className="assistant-prompt-row">{prompts.map((item) => <button type="button" className="assistant-prompt" key={item} onClick={() => setPrompt(item)}>{item}</button>)}</div>
-        <div className="assistant-composer"><textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void sendMessage(); } }} placeholder="เช่น เพิ่มสูตรลาเต้ นม 10 มิล ผงกาแฟ 2 5กรัม" maxLength={2000} /><div className="assistant-composer-footer"><span className="assistant-note">จำบริบทเฉพาะ session นี้ · ยังไม่บันทึกจนกดยืนยัน</span><button type="button" className="button button-primary" onClick={() => void sendMessage()} disabled={pending || !prompt.trim()}><IconSend size={15} />{pending ? "กำลังคิด…" : "ส่งข้อความ"}</button></div></div>
+        <div className="assistant-composer"><textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void sendMessage(); } }} placeholder="เช่น เพิ่มสูตรลาเต้ นม 10 มิล ผงกาแฟ 2 5กรัม" maxLength={2000} /><div className="assistant-composer-footer"><span className="assistant-note">จำบริบทเฉพาะ session นี้ · ยังไม่บันทึกจนกดยืนยัน</span><button type="button" className="button button-primary" onClick={() => void sendMessage()} disabled={pending || !prompt.trim()}><IconSend size={15} />{pending ? "กำลังคิด…" : "ส่งข้อความ"}</button></div>{pending && <div className="assistant-status" role="status" aria-live="polite"><IconSparkles size={14} />Gemini กำลังวิเคราะห์ข้อมูล…</div>}{feedback && <div className="capture-feedback assistant-feedback" role="alert"><IconAlertTriangle size={14} />{feedback}</div>}</div>
       </SectionCard>
       <SectionCard className="draft-panel" title="Draft ที่แก้ไขได้" description="คำสั่งเดียวรวมวัตถุดิบ เมนู และสูตรได้ · ยืนยันครั้งเดียวแบบ transaction">
         {!bundle ? <div className="empty-state"><div className="empty-mark"><IconMessageChatbot size={23} /></div><h3>ยังไม่มี draft</h3><p>ถามข้อมูลต้นทุน หรือสั่งให้ผู้ช่วยเตรียมรายการ catalog</p></div> : <><div className="draft-header"><div><h2>ชุดข้อมูลจาก Gemini</h2><p>{bundle.drafts.length} ชนิด · {bundle.drafts.reduce((sum, draft) => sum + draft.rows.length, 0)} แถว · รอตรวจ</p></div><span className="draft-badge">ยังไม่บันทึก</span></div>{bundle.drafts.map((draft, draftIndex) => <div className="draft-group" key={`${draft.kind}-${draftIndex}`}><div className="draft-group-title"><strong>{kindLabels[draft.kind]}</strong><span>{draft.rows.length} แถว</span></div><div className="draft-rows">{draft.rows.map((row, rowIndex) => <DraftRow key={rowIndex} kind={draft.kind} row={row} idPrefix={`${draftIndex}-${rowIndex}`} onChange={(key, value) => updateBundleDraft(draftIndex, rowIndex, key, value)} />)}</div></div>)}{pricingSuggestions.length > 0 && <div className="pricing-suggestions"><strong>ต้นทุนต่อเสิร์ฟคำนวณแล้ว แต่ยังไม่มีราคาขาย</strong>{pricingSuggestions.map((suggestion) => <div className="pricing-row" key={suggestion.menuName}><span>{suggestion.menuName} · ต้นทุน {suggestion.cost.toFixed(2)} บาท</span><div>{suggestion.prices.map((item) => <button type="button" className="assistant-prompt" key={item.margin} onClick={() => applySuggestedPrice(suggestion.menuName, item.price)}>กำไร {Math.round(item.margin * 100)}% · {item.price} บาท</button>)}</div></div>)}</div>}{bundle.warnings.length > 0 && <div className="draft-warning"><IconAlertTriangle size={16} />{bundle.warnings.join(" · ")}</div>}<div className="form-actions"><button type="button" className="button button-primary" onClick={() => void confirmBundle()} disabled={pending}><IconCheck size={15} />{pending ? "กำลังบันทึก…" : "ตรวจแล้ว ยืนยันชุดข้อมูล"}</button></div></>}

@@ -8,7 +8,8 @@
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:production": "node scripts/audit-production.mjs"
+    "test:production": "node scripts/audit-production.mjs",
+    "test:capture": "node scripts/audit-capture.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.18.0",

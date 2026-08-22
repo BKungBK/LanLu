@@ -40,6 +40,8 @@ Implement the LanLu Catalog + Gemini Assistant and major UI audit plan from the 
 - components/capture-page.tsx, components/app-shell.tsx, components/dashboard.tsx
 - app/api/assistant/route.ts, app/assistant/page.tsx
 - app/globals.css, scripts/audit-production.mjs
+- components/capture-page.tsx, components/assistant-page.tsx, components/ingredient-settings.tsx, components/menu-settings.tsx, components/inventory-page.tsx
+- app/api/assistant/route.ts, lib/store.tsx, lib/types.ts, scripts/audit-capture.mjs, supabase/migrations/20260823010000_catalog_archive.sql
 - supabase/migrations/20260822020000_catalog_assistant.sql
 - supabase/migrations/20260822030000_catalog_purchase_bundle.sql
 
@@ -59,6 +61,11 @@ Implement the LanLu Catalog + Gemini Assistant and major UI audit plan from the 
 - Diagnosed production React #418 as date-dependent hydration mismatch in dashboard/sales; removed module-load date dependence and added post-hydration shop-timezone date ranges.
 - Raised audited mobile controls to at least 44px for date fields, edit buttons, assistant tabs, and quick replies.
 - Final typecheck, build, test (11/11), detector (`[]`), and local guest audit (17/17) passed after these fixes.
+- Production assistant endpoint returned HTTP 200 with deterministic package-cost answer (`0.13 บาท/ml`) during authenticated diagnostic.
+- Added visible Gemini pending/error/timeout feedback and filtered archived catalog context.
+- Added audited archive actions for ingredients, menus, and latest recipe versions; hard delete is avoided to preserve ledger, sales, recipe history, and audit events.
+- Applied `20260823010000_catalog_archive.sql` to the linked Supabase project.
+- Added `npm run test:capture`; authenticated production Capture audit passed 8/8 checks across all four tabs on desktop and mobile. Impeccable detector returned `[]` after the UI pass.
 
 # Open issues
 
@@ -69,8 +76,8 @@ Implement the LanLu Catalog + Gemini Assistant and major UI audit plan from the 
 
 # Latest checkpoint
 
-Implementation and local verification are complete; remote migration is applied and the source fixes are verified locally. The deployed production build still needs redeployment before the authenticated audit can confirm the fixes.
+Implementation and local verification are complete; archive migration is applied and the pre-deploy Capture audit passes. The new source still needs deployment before the authenticated production audit can confirm the Gemini feedback and archive UI.
 
 # Next action
 
-Deploy the current source, then rerun the authenticated production audit against `https://lan-lu.vercel.app`.
+Commit/push the current source, wait for Vercel deployment, then rerun the authenticated production audit against `https://lan-lu.vercel.app`.

@@ -44,8 +44,8 @@ type CatalogContext = { ingredients: Array<{ name: string; unit: string; unitCos
 
 async function loadCatalogContext(supabase: Awaited<ReturnType<typeof createClient>>, shopId: string): Promise<CatalogContext> {
   const [ingredientsResult, menusResult, categoriesResult] = await Promise.all([
-    supabase.from("ingredients").select("name, unit, unit_cost, purchase_package_unit, purchase_content_unit").eq("shop_id", shopId).order("created_at").limit(100),
-    supabase.from("menu_items").select("name, category_id").eq("shop_id", shopId).order("created_at").limit(100),
+    supabase.from("ingredients").select("name, unit, unit_cost, purchase_package_unit, purchase_content_unit").eq("shop_id", shopId).eq("active", true).order("created_at").limit(100),
+    supabase.from("menu_items").select("name, category_id").eq("shop_id", shopId).is("archived_at", null).order("created_at").limit(100),
     supabase.from("menu_categories").select("name").eq("shop_id", shopId).order("name").limit(40),
   ]);
   const ingredients = (ingredientsResult.data ?? []).map((item: any) => ({ name: String(item.name), unit: String(item.unit), unitCost: Number(item.unit_cost ?? 0), hasPurchase: Boolean(item.purchase_package_unit || item.purchase_content_unit) }));

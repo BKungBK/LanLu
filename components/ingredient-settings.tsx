@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { IconCheck, IconPackage, IconPencil, IconPlus, IconToolsKitchen2, IconX } from "@tabler/icons-react";
+import { IconArchive, IconCheck, IconPackage, IconPencil, IconPlus, IconToolsKitchen2, IconX } from "@tabler/icons-react";
 import { useLanlu } from "@/lib/store";
 import type { IngredientPurchaseInfo, IngredientUnit } from "@/lib/types";
 import { calculatePurchaseUnitCost, DEFAULT_INGREDIENT_UNITS, formatPurchaseCostPreview } from "@/lib/catalog";
@@ -10,7 +10,7 @@ import { CreatableSelect, DateField } from "@/components/form-controls";
 import { EmptyState, PageHeader, SectionCard } from "@/components/ui";
 
 export function IngredientSettings() {
-  const { state, addIngredient, updateIngredient, loading } = useLanlu();
+  const { state, addIngredient, updateIngredient, archiveCatalogItem, loading } = useLanlu();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [unit, setUnit] = useState<IngredientUnit>("ลิตร");
@@ -28,6 +28,7 @@ export function IngredientSettings() {
   const [feedback, setFeedback] = useState("");
   const [pending, setPending] = useState(false);
   const units = useMemo(() => Array.from(new Set([...DEFAULT_INGREDIENT_UNITS, ...state.ingredients.map((ingredient) => ingredient.unit), unit])), [state.ingredients, unit]);
+  const activeIngredients = useMemo(() => state.ingredients.filter((ingredient) => ingredient.active !== false), [state.ingredients]);
 
   const resetForm = () => { setEditingId(null); setName(""); setUnit("ลิตร"); setSupplier(""); setQuantity(0); setReorderPoint(1); setUnitCost(0); setPackageUnit(""); setPackageCount(1); setContentQuantity(0); setContentUnit(""); setPurchasePrice(0); setConversionFactor(0); setOpeningExpiry(""); };
   const editIngredient = (id: string) => { const ingredient = state.ingredients.find((item) => item.id === id); if (!ingredient) return; const purchase = ingredient.purchase; setEditingId(id); setName(ingredient.name); setUnit(ingredient.unit); setSupplier(ingredient.supplier ?? ""); setReorderPoint(ingredient.reorderPoint); setUnitCost(ingredient.unitCost); setPackageUnit(purchase?.packageUnit ?? ""); setPackageCount(purchase?.packageCount ?? 1); setContentQuantity(purchase?.contentQuantity ?? 0); setContentUnit(purchase?.contentUnit ?? ingredient.unit); setPurchasePrice(purchase?.purchasePrice ?? 0); setConversionFactor(purchase?.conversionFactor ?? 0); setQuantity(0); setOpeningExpiry(""); setFeedback(""); };
@@ -47,12 +48,19 @@ export function IngredientSettings() {
     setPending(false); setFeedback(result.message);
     if (result.ok) resetForm();
   };
+  const archiveIngredient = async (id: string, ingredientName: string) => {
+    if (!window.confirm(`เก็บวัตถุดิบ “${ingredientName}” ออกจากรายการ? ประวัติสต๊อกและสูตรเดิมจะยังอยู่`)) return;
+    setPending(true); setFeedback("");
+    const result = await archiveCatalogItem("ingredient", id);
+    setPending(false); setFeedback(result.message);
+    if (result.ok && editingId === id) resetForm();
+  };
 
   return <>
     <PageHeader eyebrow="ตั้งค่าร้าน" title="วัตถุดิบและต้นทุน" description="กำหน่วย จุดสั่งซื้อ และต้นทุนต่อหน่วย เพื่อให้คำแนะนำมีเหตุผล" action={<Link href="/settings/menu" className="button button-soft"><IconToolsKitchen2 size={15} />ไปเมนูและสูตร</Link>} />
     <div className="settings-grid">
-      <SectionCard className="form-card" title="วัตถุดิบทั้งหมด" description={`${state.ingredients.length} รายการ · ยอดคงเหลือคำนวณจาก ledger จริง`}>
-        {state.ingredients.length === 0 ? <EmptyState title="ยังไม่มีวัตถุดิบ" description="เพิ่มวัตถุดิบแรกของร้านทางด้านขวา" /> : <div className="setting-list">{state.ingredients.map((ingredient) => <div className={`setting-row ${editingId === ingredient.id ? "setting-row-editing" : ""}`} key={ingredient.id}><div><strong>{ingredient.name}</strong><span>คงเหลือ {ingredient.quantityOnHand} {ingredient.unit} · จุดสั่งซื้อ {ingredient.reorderPoint}{ingredient.supplier ? ` · ${ingredient.supplier}` : ""}</span></div><div className="setting-row-actions"><span className={`recipe-status ${ingredient.quantityOnHand <= 0 ? "missing" : ""}`}><IconPackage size={13} />{ingredient.unitCost.toLocaleString("th-TH")} บาท/{ingredient.unit}</span><button type="button" className="icon-button" aria-label={`แก้ไข ${ingredient.name}`} onClick={() => editIngredient(ingredient.id)}><IconPencil size={15} /></button></div></div>)}</div>}
+      <SectionCard className="form-card" title="วัตถุดิบทั้งหมด" description={`${activeIngredients.length} รายการ · ยอดคงเหลือคำนวณจาก ledger จริง`}>
+        {activeIngredients.length === 0 ? <EmptyState title="ยังไม่มีวัตถุดิบ" description="เพิ่มวัตถุดิบแรกของร้านทางด้านขวา" /> : <div className="setting-list">{activeIngredients.map((ingredient) => <div className={`setting-row ${editingId === ingredient.id ? "setting-row-editing" : ""}`} key={ingredient.id}><div><strong>{ingredient.name}</strong><span>คงเหลือ {ingredient.quantityOnHand} {ingredient.unit} · จุดสั่งซื้อ {ingredient.reorderPoint}{ingredient.supplier ? ` · ${ingredient.supplier}` : ""}</span></div><div className="setting-row-actions"><span className={`recipe-status ${ingredient.quantityOnHand <= 0 ? "missing" : ""}`}><IconPackage size={13} />{ingredient.unitCost.toLocaleString("th-TH")} บาท/{ingredient.unit}</span><button type="button" className="icon-button" aria-label={`แก้ไข ${ingredient.name}`} onClick={() => editIngredient(ingredient.id)} disabled={pending}><IconPencil size={15} /></button><button type="button" className="icon-button icon-button-danger" aria-label={`เก็บ ${ingredient.name} ออกจากรายการ`} onClick={() => void archiveIngredient(ingredient.id, ingredient.name)} disabled={pending}><IconArchive size={15} /></button></div></div>)}</div>}
       </SectionCard>
       <SectionCard className="form-card" title={editingId ? "แก้ไขวัตถุดิบ" : "เพิ่มวัตถุดิบ"} description={editingId ? "แก้ master data ได้โดยไม่เขียนทับ movement เดิม" : "ยอดเริ่มต้นจะสร้าง receipt lot พร้อม audit trail"}>
         <form className="form-grid" onSubmit={submit}>

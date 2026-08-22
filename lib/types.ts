@@ -17,6 +17,7 @@ export type MenuItem = {
   category: MenuCategory;
   price: number;
   active: boolean;
+  archivedAt?: string;
 };
 
 export type Ingredient = {
@@ -28,6 +29,7 @@ export type Ingredient = {
   unitCost: number;
   nearestExpiry?: string;
   supplier?: string;
+  active?: boolean;
   purchase?: IngredientPurchaseInfo;
 };
 
