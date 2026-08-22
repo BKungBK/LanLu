@@ -43,7 +43,7 @@ async function inspect(page, route, viewportName, authenticated) {
     const scrollHeight = document.documentElement.scrollHeight;
     const expectedLogin = !authenticated && route !== "/login";
     const onLogin = location.pathname === "/login";
-    return { finalPath: location.pathname, expectedLogin, onLogin, title: document.title, textLength: document.body.innerText.length, expectedMissing: route === "/login" && !onLogin ? ["login redirect"] : [], unnamedInteractive, smallTouchTargets, viewportWidth, viewportHeight, scrollWidth, scrollHeight, horizontalOverflow: scrollWidth > viewportWidth + 1, verticalOverflow: scrollHeight > viewportHeight + 1, navigation: navigation ? { domContentLoaded: Math.round(navigation.domContentLoadedEventEnd), loadEventEnd: Math.round(navigation.loadEventEnd), transferSize: navigation.transferSize } : null };
+    return { finalPath: location.pathname, expectedLogin, onLogin, title: document.title, textLength: document.body.innerText.length, expectedMissing: route === "/login" && !authenticated && !onLogin ? ["login redirect"] : [], unnamedInteractive, smallTouchTargets, viewportWidth, viewportHeight, scrollWidth, scrollHeight, horizontalOverflow: scrollWidth > viewportWidth + 1, verticalOverflow: scrollHeight > viewportHeight + 1, navigation: navigation ? { domContentLoaded: Math.round(navigation.domContentLoadedEventEnd), loadEventEnd: Math.round(navigation.loadEventEnd), transferSize: navigation.transferSize } : null };
     }, { route, authenticated });
   } catch {
     await page.waitForLoadState("domcontentloaded").catch(() => {});
