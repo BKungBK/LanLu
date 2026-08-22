@@ -11,8 +11,17 @@ enabled = true
 
 [auth]
 enabled = true
-site_url = "http://localhost:3000"
-additional_redirect_urls = ["http://localhost:3000/auth/callback", "https://lan-lu.vercel.app/auth/callback"]
+site_url = "https://lan-lu.vercel.app"
+additional_redirect_urls = ["http://localhost:3000", "http://localhost:3000/auth/callback", "https://lan-lu.vercel.app/auth/callback"]
+
+[auth.mfa.totp]
+enroll_enabled = true
+verify_enabled = true
+
+[auth.email]
+enable_confirmations = true
+max_frequency = "1m0s"
+otp_length = 8
 
 [storage]
 enabled = true
