@@ -1,8 +1,8 @@
 ---
 version: 1
 status: complete
-task_id: lanlu-catalog-gemini-ui-audit
-updated_at: 2026-08-23T11:40:00+07:00
+task_id: lanlu-sales-capture-signal-hardening
+updated_at: 2026-08-23T20:35:00+07:00
 ---
 
 # Goal
@@ -89,3 +89,13 @@ Verification: typecheck passed, tests passed 21/21, and production build passed.
 # Next action
 
 If production sets `GEMINI_MODEL`, keep it at `gemini-3.5-flash-lite` before deployment; otherwise the new default is used. Run the authenticated UI/AI production audit after deployment; push only after user requests it.
+
+# Current follow-up
+
+User reported that the dashboard signal strip is visually left-heavy, sales capture is hard to understand, and updating sales appears unavailable. Graph/source inspection found the strip lacks centered flex alignment, capture blocks the action while global `loading` is true and does not persist the draft idempotency key, and the sales report has no explicit refresh action. The database already has the `record_sales_batch` and `confirm_daily_close` RPCs with server-side line validation.
+
+Planned changes: center signal items; harden Quick capture date/draft initialization, single-ingredient selection, validation, error feedback, and retry-safe submission; add a clearly labeled sales refresh action and empty states; wrap store hydration in catch/finally so a failed load cannot leave the capture action disabled indefinitely.
+
+Verification: centered signal strip, clearer capture steps/summary, timezone-safe and retry-safe capture drafts, single-ingredient enforcement, explicit validation/error states, store hydration catch/finally, sales refresh action, and empty sales tables are implemented. `npm run typecheck` passed, `npm run test` passed 21/21, `npm run build` passed, `git diff --check` passed, Impeccable detector returned `[]`, and the warmed local guest audit passed 17/17 desktop/mobile checks. Authenticated submit/production UI audit remains pending until the audit account is available; push is authorized by the user for this verified change.
+
+Next action: push the verified change to `origin/master`, then let the user run the authenticated test. Before a production deployment, keep `GEMINI_MODEL` at `gemini-3.5-flash-lite` when set and run the authenticated UI/AI audit with the supplied account.

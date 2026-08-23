@@ -144,6 +144,7 @@ export function LanluProvider({ children }: { children: React.ReactNode }) {
   const loadForUser = useCallback(async (currentUser: { id: string; email?: string }) => {
     setLoading(true);
     setError("");
+    try {
     const { data: member, error: memberError } = await supabase.from("shop_members").select("shop_id, shops(id, name, owner_name, timezone, currency)").eq("user_id", currentUser.id).order("created_at", { ascending: true }).limit(1).maybeSingle();
     if (memberError) { setError(messageForError(memberError, "โหลดข้อมูลร้านไม่สำเร็จ")); setLoading(false); setHydrated(true); return; }
     if (!member?.shop_id) { setState(emptyState); setLoading(false); setHydrated(true); return; }
@@ -199,6 +200,13 @@ export function LanluProvider({ children }: { children: React.ReactNode }) {
     };
     if (loadedState.recommendations.length === 0) loadedState.recommendations = buildRecommendations(loadedState);
     setState(loadedState); setLoading(false); setHydrated(true);
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : String(caught);
+      setError(messageForError({ message }, "โหลดข้อมูลร้านไม่สำเร็จ"));
+    } finally {
+      setLoading(false);
+      setHydrated(true);
+    }
   }, [supabase]);
 
   const refresh = useCallback(async () => { if (user) await loadForUser(user); }, [loadForUser, user]);

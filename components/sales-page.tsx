@@ -1,7 +1,8 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
-import { IconArrowUpRight, IconChartBar, IconCoins, IconCup, IconReceipt } from "@tabler/icons-react";
+import { IconAlertTriangle, IconArrowUpRight, IconChartBar, IconCheck, IconCoins, IconCup, IconReceipt, IconRefresh } from "@tabler/icons-react";
 import { aggregateSalesByDay, formatCurrency, getDateRange, getGrossProfit, getMenuSales, getRevenue, getSaleUnits, getTodayInTimezone } from "@/lib/calculations";
 import { useLanlu } from "@/lib/store";
 import { DatePill, KpiCard, MiniLink, PageHeader, SectionCard } from "@/components/ui";
@@ -9,7 +10,9 @@ import { DatePill, KpiCard, MiniLink, PageHeader, SectionCard } from "@/componen
 const dayLabel = (date: string) => new Intl.DateTimeFormat("th-TH", { weekday: "short", day: "numeric" }).format(new Date(`${date}T12:00:00+07:00`));
 
 export function SalesPage() {
-  const { state, hydrated } = useLanlu();
+  const { state, hydrated, refresh, loading, error: storeError } = useLanlu();
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshFeedback, setRefreshFeedback] = useState("");
   const today = hydrated ? getTodayInTimezone(state.shop.timezone) : "2000-01-01";
   const dates = getDateRange(today);
   const chart = aggregateSalesByDay(state.sales, dates);
@@ -20,6 +23,20 @@ export function SalesPage() {
   const max = Math.max(...chart.map((item) => item.units), 1);
   const recent = [...state.sales].reverse().slice(0, 6);
 
+  const refreshSales = async () => {
+    if (refreshing || !hydrated) return;
+    setRefreshing(true);
+    setRefreshFeedback("");
+    try {
+      await refresh();
+      setRefreshFeedback("โหลดข้อมูลยอดขายล่าสุดแล้ว");
+    } catch {
+      setRefreshFeedback("โหลดข้อมูลยอดขายไม่สำเร็จ ลองอีกครั้ง");
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   if (!hydrated) return <>
     <PageHeader eyebrow="ยอดขาย" title="กำลังเตรียมยอดขาย" description="กำลังโหลดข้อมูลยอดขายที่ยืนยันแล้ว" />
     <SectionCard title="กำลังโหลดข้อมูล" description="รอสักครู่ ระบบกำลังเตรียมรายงานยอดขายล่าสุด">
@@ -28,7 +45,8 @@ export function SalesPage() {
   </>;
 
   return <>
-    <PageHeader eyebrow="ยอดขาย" title="ยอดขายของร้าน" description="ดูยอดขายที่ยืนยันแล้ว พร้อม snapshot ราคาและต้นทุนย้อนหลัง" action={<><DatePill /><Link href="/capture" className="button button-primary"><IconReceipt size={15} />บันทึกยอดขาย</Link></>} />
+    <PageHeader eyebrow="ยอดขาย" title="ยอดขายของร้าน" description="ดูยอดขายที่ยืนยันแล้ว พร้อม snapshot ราคาและต้นทุนย้อนหลัง" action={<div className="sales-page-actions"><DatePill /><button type="button" className="button button-quiet" onClick={() => void refreshSales()} disabled={!hydrated || refreshing} aria-busy={refreshing || loading} title="โหลดรายการยอดขายล่าสุดจากระบบ"><IconRefresh size={15} />{refreshing ? "กำลังโหลดข้อมูล" : "อัปเดตยอดขาย"}</button><Link href="/capture" className="button button-primary"><IconReceipt size={15} />บันทึกยอดขาย</Link></div>} />
+    {(storeError || refreshFeedback) && <div className={`data-note ${storeError ? "data-note-error" : ""}`} role={storeError ? "alert" : "status"}><span>{storeError ? <><IconAlertTriangle size={14} />โหลดข้อมูลร้านไม่สำเร็จ ลองกดอัปเดตยอดขายอีกครั้ง</> : <><IconCheck size={14} />{refreshFeedback}</>}</span>{storeError && <button type="button" className="mini-link" onClick={() => void refreshSales()} disabled={refreshing}>ลองอีกครั้ง</button>}</div>}
     <div className="kpi-grid">
       <KpiCard label="ยอดขายสะสม" value={formatCurrency(revenue)} detail="จากข้อมูลที่มีในระบบ" tone="up" icon={<IconCoins size={16} />} />
       <KpiCard label="จำนวนแก้ว" value={`${units} แก้ว`} detail="รวมทุกเมนู" tone="neutral" icon={<IconCup size={16} />} />
@@ -41,12 +59,12 @@ export function SalesPage() {
     </SectionCard>
     <div className="dashboard-row sales-bottom-row">
       <SectionCard title="เมนูทั้งหมด" description="จัดอันดับตามจำนวนแก้วที่ขาย" action={<MiniLink href="/settings/menu">จัดการเมนู</MiniLink>}>
-        <div className="table-wrap"><table className="data-table"><thead><tr><th>#</th><th>เมนู</th><th>จำนวนแก้ว</th><th>ยอดขาย</th></tr></thead><tbody>{menuSales.map((menu, index) => <tr key={menu.id}><td><span className="rank">{index + 1}</span></td><td><span className="menu-name-cell"><span className="menu-mini-icon"><IconCup size={14} /></span><strong>{menu.name}</strong></span></td><td>{menu.units} แก้ว</td><td className="table-total">{formatCurrency(menu.units * menu.price)}</td></tr>)}</tbody></table></div>
+        <div className="table-wrap"><table className="data-table"><thead><tr><th>#</th><th>เมนู</th><th>จำนวนแก้ว</th><th>ยอดขาย</th></tr></thead><tbody>{menuSales.length ? menuSales.map((menu, index) => <tr key={menu.id}><td><span className="rank">{index + 1}</span></td><td><span className="menu-name-cell"><span className="menu-mini-icon"><IconCup size={14} /></span><strong>{menu.name}</strong></span></td><td>{menu.units} แก้ว</td><td className="table-total">{formatCurrency(menu.units * menu.price)}</td></tr>) : <tr><td colSpan={4}><div className="table-empty">ยังไม่มีรายการขายที่ยืนยันแล้ว<br /><Link href="/capture" className="mini-link">เริ่มบันทึกยอดขาย</Link></div></td></tr>}</tbody></table></div>
       </SectionCard>
       <SectionCard title="รายการล่าสุด" description="แต่ละรายการเก็บราคาและต้นทุน snapshot" action={<MiniLink href="/capture">เพิ่มข้อมูล</MiniLink>}>
-        <div className="table-wrap"><table className="data-table"><thead><tr><th>วันที่</th><th>แก้ว</th><th>ยอดขาย</th></tr></thead><tbody>{recent.map((sale) => <tr key={sale.id}><td className="muted">{dayLabel(sale.businessDate)}</td><td>{getSaleUnits([sale])} แก้ว</td><td className="table-total"><strong>{formatCurrency(sale.lines.reduce((sum, line) => sum + line.quantity * line.priceSnapshot, 0))}</strong></td></tr>)}</tbody></table></div>
+        <div className="table-wrap"><table className="data-table"><thead><tr><th>วันที่</th><th>แก้ว</th><th>ยอดขาย</th></tr></thead><tbody>{recent.length ? recent.map((sale) => <tr key={sale.id}><td className="muted">{dayLabel(sale.businessDate)}</td><td>{getSaleUnits([sale])} แก้ว</td><td className="table-total"><strong>{formatCurrency(sale.lines.reduce((sum, line) => sum + line.quantity * line.priceSnapshot, 0))}</strong></td></tr>) : <tr><td colSpan={3}><div className="table-empty">ยังไม่มีรายการล่าสุด<br /><Link href="/capture" className="mini-link">บันทึกยอดขายรายการแรก</Link></div></td></tr>}</tbody></table></div>
       </SectionCard>
     </div>
-    <div className="data-note"><span><strong>หมายเหตุ</strong> · ยอดขายแก้ย้อนหลังควรใช้ compensating transaction เพื่อรักษา audit trail ใน production</span><Link href="/capture" className="mini-link">บันทึกข้อมูล</Link></div>
+    <div className="data-note"><span><strong>แก้ยอดย้อนหลัง</strong> · ระบบเก็บยอดขายเป็นรายการเพิ่มใหม่เพื่อรักษา audit trail หากยอดผิด ให้บันทึกรายการชดเชยใน Quick capture</span><Link href="/capture" className="mini-link">บันทึกรายการแก้ไข</Link></div>
   </>;
 }
