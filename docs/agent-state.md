@@ -2,7 +2,7 @@
 version: 1
 status: complete
 task_id: lanlu-catalog-gemini-ui-audit
-updated_at: 2026-08-23T10:50:00+07:00
+updated_at: 2026-08-23T11:20:00+07:00
 ---
 
 # Goal
@@ -82,10 +82,10 @@ Implement the LanLu Catalog + Gemini Assistant and major UI audit plan from the 
 
 # Latest checkpoint
 
-Switched the assistant's default Gemini model to the verified stable model ID `gemini-3.5-flash-lite`; `GEMINI_MODEL` remains an explicit environment override. The existing structured JSON schema, 8-second timeout, and single-attempt request behavior are unchanged.
+Extended the deterministic ingredient parser to understand conversational Thai, including approximate quantities and per-package pricing such as `ผมมี นม 10 ขวด ประมาณ 500 ml ต่อขวด ราคา 20 ไรงี้`. It now creates a draft for 5,000 ml, 200 baht total, and 0.04 baht/ml, warns about approximate values, and asks a focused question when a multi-package price is ambiguous. The existing Gemini fallback and draft-only confirmation flow remain unchanged.
 
-Verification: typecheck passed and tests passed 14/14. Authenticated UI/AI production audit still needs the supplied audit account.
+Verification: typecheck passed, tests passed 17/17, and production build passed. Authenticated UI/AI production audit still needs the supplied audit account.
 
 # Next action
 
-If production sets `GEMINI_MODEL`, update that environment value to `gemini-3.5-flash-lite` before deployment; otherwise the new default is used. Run the authenticated UI/AI production audit after deployment; push only after user requests it.
+If production sets `GEMINI_MODEL`, keep it at `gemini-3.5-flash-lite` before deployment; otherwise the new default is used. Run the authenticated UI/AI production audit after deployment; push only after user requests it.
