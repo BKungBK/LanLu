@@ -3,7 +3,7 @@ import { GoogleGenAI } from "@google/genai";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import type { AssistantTurn, CsvMappingSuggestion } from "@/lib/types";
-import { parseSimpleIngredientCommand } from "@/lib/assistant-parser";
+import { parseIngredientFollowUp, parseSimpleIngredientCommand } from "@/lib/assistant-parser";
 
 export const runtime = "nodejs";
 
@@ -170,6 +170,8 @@ export async function POST(request: Request) {
   // Explicit purchase commands do not need a catalog read or a model call.
   const fastPath = parseSimpleIngredientCommand(body.data.message);
   if (fastPath) return NextResponse.json({ turn: fastPath, ...fastPath });
+  const followUp = parseIngredientFollowUp(body.data.message, body.data.conversation);
+  if (followUp) return NextResponse.json({ turn: followUp, ...followUp });
   if (!process.env.GEMINI_API_KEY) return NextResponse.json({ error: "ยังไม่ได้ตั้งค่า Gemini ฝั่ง server" }, { status: 503 });
 
   const { data: member, error: memberError } = await supabase.from("shop_members").select("shop_id").eq("user_id", user.id).order("created_at", { ascending: true }).limit(1).maybeSingle();

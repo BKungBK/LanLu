@@ -110,9 +110,15 @@ export function AssistantPage() {
   const confirmBundle = async () => {
     if (!bundle || pending || bundle.drafts.length === 0) return;
     setPending(true); setFeedback("");
-    const result = await importCatalogBundle({ bundle, idempotencyKey: `assistant-bundle-${crypto.randomUUID()}`, conflictMode: "create" });
-    setPending(false); setFeedback(result.message);
-    if (result.ok) { setBundle(null); setMessages(initialMessages); }
+    try {
+      const result = await importCatalogBundle({ bundle, idempotencyKey: `assistant-bundle-${crypto.randomUUID()}`, conflictMode: "create" });
+      setFeedback(result.message);
+      if (result.ok) { setBundle(null); setMessages(initialMessages); setQuestionDrafts({}); setLastFailedPrompt(""); }
+    } catch {
+      setFeedback("บันทึก draft ไม่สำเร็จ ระบบพร้อมให้ลองส่งคำสั่งใหม่");
+    } finally {
+      setPending(false);
+    }
   };
 
   const handleCsv = async (file?: File) => {
@@ -140,7 +146,19 @@ export function AssistantPage() {
   const updateBundleDraft = (draftIndex: number, rowIndex: number, key: string, value: unknown) => setBundle((current) => current ? { ...current, drafts: current.drafts.map((draft, index) => index !== draftIndex ? draft : { ...draft, rows: draft.rows.map((row, index) => index === rowIndex ? { ...row, [key]: value } : row) }) } : current);
   const applySuggestedPrice = (menuName: string, price: number) => setBundle((current) => current ? { ...current, drafts: current.drafts.some((draft) => draft.kind === "menu") ? current.drafts.map((draft) => draft.kind === "menu" ? { ...draft, rows: draft.rows.map((row) => String(row.name ?? "").trim() === menuName ? { ...row, price } : row) } : draft) : [...current.drafts, { kind: "menu", source: "gemini", rows: [{ name: menuName, category: "อื่น ๆ", price, active: true }], warnings: ["ราคาขายนี้มาจากตัวเลือก margin ต้องตรวจสอบก่อนยืนยัน"] }] } : current);
   const downloadTemplate = () => { const blob = new Blob([rowsToCsv(templates[csvKind])], { type: "text/csv;charset=utf-8" }); const url = URL.createObjectURL(blob); const anchor = document.createElement("a"); anchor.href = url; anchor.download = `lanlu-${csvKind}-template.csv`; anchor.click(); URL.revokeObjectURL(url); };
-  const confirmCsv = async () => { if (csvHasErrors || !csvRows.length || pending) return; setPending(true); const result = await importCatalog({ kind: csvKind, rows: stripMeta(csvValidated), idempotencyKey: `csv-${crypto.randomUUID()}`, conflictMode }); setPending(false); setFeedback(result.message); if (result.ok) { setCsvRows([]); setCsvText(""); setCsvHeaders([]); } };
+  const confirmCsv = async () => {
+    if (csvHasErrors || !csvRows.length || pending) return;
+    setPending(true); setFeedback("");
+    try {
+      const result = await importCatalog({ kind: csvKind, rows: stripMeta(csvValidated), idempotencyKey: `csv-${crypto.randomUUID()}`, conflictMode });
+      setFeedback(result.message);
+      if (result.ok) { setCsvRows([]); setCsvText(""); setCsvHeaders([]); }
+    } catch {
+      setFeedback("นำเข้า CSV ไม่สำเร็จ ระบบพร้อมให้ลองใหม่");
+    } finally {
+      setPending(false);
+    }
+  };
 
   return <>
     <PageHeader eyebrow="LanLu workspace" title="ผู้ช่วยและนำเข้าข้อมูล" description="คุยด้วยภาษาธรรมชาติ ให้ระบบเตรียม draft และตรวจทุกอย่างก่อนบันทึก" action={<div className="assistant-tabs"><button type="button" className={`assistant-tab ${mode === "gemini" ? "active" : ""}`} onClick={() => setMode("gemini")}><IconSparkles size={14} /> ผู้ช่วย Gemini</button><button type="button" className={`assistant-tab ${mode === "csv" ? "active" : ""}`} onClick={() => setMode("csv")}><IconFileUpload size={14} /> นำเข้า CSV</button></div>} />

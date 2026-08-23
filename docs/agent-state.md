@@ -2,7 +2,7 @@
 version: 1
 status: complete
 task_id: lanlu-catalog-gemini-ui-audit
-updated_at: 2026-08-23T11:20:00+07:00
+updated_at: 2026-08-23T11:40:00+07:00
 ---
 
 # Goal
@@ -82,9 +82,9 @@ Implement the LanLu Catalog + Gemini Assistant and major UI audit plan from the 
 
 # Latest checkpoint
 
-Extended the deterministic ingredient parser to understand conversational Thai, including approximate quantities and per-package pricing such as `ผมมี นม 10 ขวด ประมาณ 500 ml ต่อขวด ราคา 20 ไรงี้`. It now creates a draft for 5,000 ml, 200 baht total, and 0.04 baht/ml, warns about approximate values, and asks a focused question when a multi-package price is ambiguous. The existing Gemini fallback and draft-only confirmation flow remain unchanged.
+Hardened the assistant follow-up flow. Inventory messages without a command prefix are parsed, short answers such as `70` are resolved against the previous assistant question locally without another Gemini call, price scope and missing quantity questions are handled explicitly, and draft/CSV confirmation always clears pending state even when the import promise throws. Ambiguous input remains draft-only and asks a focused question instead of guessing.
 
-Verification: typecheck passed, tests passed 17/17, and production build passed. Authenticated UI/AI production audit still needs the supplied audit account.
+Verification: typecheck passed, tests passed 21/21, and production build passed. Authenticated UI/AI production audit still needs the supplied audit account.
 
 # Next action
 

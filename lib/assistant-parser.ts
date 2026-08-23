@@ -39,9 +39,10 @@ function questionTurn(id: string, label: string, message = label, options?: stri
 export function parseSimpleIngredientCommand(message: string): AssistantTurn | null {
   const text = message.trim().replace(/\s+/g, " ").replace(/[，]/g, ",");
   const commandMatch = /^(?:(?:ตอนนี้\s*)?(?:ผม|ฉัน|เรา)\s*)?(?:มี|ซื้อมา|ซื้อ|เพิ่ม(?:\s*วัตถุดิบ)?)(?:\s*)/i.exec(text);
-  if (!commandMatch) return null;
+  const looksLikeInventoryMessage = new RegExp(`${numberPattern}\\s*${packageUnitPattern}|${numberPattern}\\s*${contentUnitPattern}|(?:ราคาซื้อ|ราคา|ปริมาณ|ขนาด)`, "i").test(text);
+  if (!commandMatch && !looksLikeInventoryMessage) return null;
 
-  const body = text.slice(commandMatch[0].length).trim();
+  const body = commandMatch ? text.slice(commandMatch[0].length).trim() : text;
   if (!body) return null;
 
   const packageMatch = new RegExp(`${numberPattern}\\s*${packageUnitPattern}`, "i").exec(body);
@@ -71,6 +72,8 @@ export function parseSimpleIngredientCommand(message: string): AssistantTurn | n
   const explicitPerPackageMatch = new RegExp(`${packageUnitRegex}\\s*ละ\\s*${numberPattern}\\s*(?:บาท|บ\\.?|฿)?`, "i").exec(tail);
   const totalPriceMatch = new RegExp(`(?:ราคารวม|รวม(?:ทั้งหมด|เป็น)?|ทั้งหมด|ราคาซื้อ)\\s*[:=]?\\s*${numberPattern}\\s*(?:บาท|บ\\.?|฿)?`, "i").exec(tail);
   const genericPriceMatch = new RegExp(`(?:ราคา|ต้นทุน|ซื้อมา(?:ในราคา)?)\\s*[:=]?\\s*${numberPattern}\\s*(?:บาท|บ\\.?|฿)?`, "i").exec(tail);
+  const afterContent = tail.slice((contentMatch.index ?? 0) + contentMatch[0].length);
+  const barePriceMatch = new RegExp(`^\\s*${numberPattern}\\s*(?:บาท|บ\\.?|฿)`, "i").exec(afterContent);
   const perPackageSignal = new RegExp(`(?:${packageUnitRegex}\\s*(?:ละ|ต่อ)|(?:ต่อ|/)\\s*${packageUnitRegex}|แต่ละ\\s*${packageUnitRegex})`, "i").test(tail);
 
   let purchasePrice: number;
@@ -91,6 +94,15 @@ export function parseSimpleIngredientCommand(message: string): AssistantTurn | n
     priceMode = "total";
   } else if (genericPriceMatch) {
     return questionTurn("purchase-price-scope", `ราคา ${genericPriceMatch[1]} บาทเป็นราคาต่อ${packageUnit}หรือราคารวมทั้งหมด?`, `ราคา ${genericPriceMatch[1]} บาทเป็นราคาต่อ${packageUnit}หรือราคารวมทั้งหมด?`, [`ต่อ${packageUnit}`, "รวมทั้งหมด"]);
+  } else if (barePriceMatch && perPackageSignal) {
+    const pricePerPackage = numeric(barePriceMatch[1]);
+    purchasePrice = packageCount * pricePerPackage;
+    priceMode = "per-package";
+  } else if (barePriceMatch && packageCount === 1) {
+    purchasePrice = numeric(barePriceMatch[1]);
+    priceMode = "total";
+  } else if (barePriceMatch) {
+    return questionTurn("purchase-price-scope", `ราคา ${barePriceMatch[1]} บาทเป็นราคาต่อ${packageUnit}หรือราคารวมทั้งหมด?`, `ราคา ${barePriceMatch[1]} บาทเป็นราคาต่อ${packageUnit}หรือราคารวมทั้งหมด?`, [`ต่อ${packageUnit}`, "รวมทั้งหมด"]);
   } else {
     return questionTurn("purchase-price", `ราคาซื้อเท่าไรต่อ${packageUnit}?`, `ระบุราคาซื้อ เช่น 20 บาทต่อ${packageUnit}`);
   }
@@ -137,4 +149,54 @@ export function parseSimpleIngredientCommand(message: string): AssistantTurn | n
     }],
     warnings: ["ยังไม่บันทึกจนกดตรวจแล้ว ยืนยันชุดข้อมูล", ...warnings],
   };
+}
+
+type AssistantConversationMessage = { role: "user" | "assistant"; text: string };
+
+/**
+ * Resolves a short answer such as "70" against the immediately preceding
+ * assistant question, so a follow-up does not need another Gemini request.
+ */
+export function parseIngredientFollowUp(message: string, conversation: AssistantConversationMessage[]): AssistantTurn | null {
+  const answer = message.trim();
+  if (!answer || conversation.at(-1)?.role !== "user") return null;
+
+  const previous = conversation.slice(0, -1);
+  const previousUser = [...previous].reverse().find((item) => item.role === "user");
+  const previousAssistant = [...previous].reverse().find((item) => item.role === "assistant");
+  if (!previousUser || !previousAssistant) return null;
+
+  const packageUnitMatch = /(?:ต่อ|\/)\s*(ขวด|ถุง|แพ็ก|แพ็ค|แพค|กล่อง|ถัง|ลัง|ชิ้น|ชุด|กระป๋อง|ซอง|ห่อ|หลอด)/i.exec(previousAssistant.text);
+  const priceQuestion = /(?:ราคา|ต้นทุน|ราคาซื้อ|จ่าย|ซื้อ)/i.test(previousAssistant.text);
+  const quantityQuestion = /(?:ปริมาณ|ขนาด|บรรจุ|มีอยู่)/i.test(previousAssistant.text);
+  const scopeQuestion = /(?:ต่อ.*(?:หรือ|กับ).*รวม|รวม.*(?:หรือ|กับ).*ต่อ)/i.test(previousAssistant.text);
+  const totalPriceRequested = /(?:ราคารวม|รวมทั้งหมด|รวมทั้งสิ้น)/i.test(previousAssistant.text);
+  const numericAnswer = /^(\d+(?:[.,]\d+)?)\s*(?:บาท|บ\.?|฿)?$/i.exec(answer);
+
+  if (numericAnswer) {
+    if (scopeQuestion) return null;
+    if (priceQuestion) {
+      const scope = packageUnitMatch ? ` ต่อ${packageUnitMatch[1]}` : "";
+      const priceLabel = totalPriceRequested && !packageUnitMatch ? "ราคารวม" : "ราคา";
+      return parseSimpleIngredientCommand(`${previousUser.text} ${priceLabel} ${numericAnswer[1]} บาท${scope}`);
+    }
+    if (quantityQuestion) {
+      const unitMatch = /(ml|มล|มิลลิลิตร|l|ลิตร|g|กรัม|kg|กก\.?|กิโลกรัม|กิโล)/i.exec(previousAssistant.text) ?? /(ml|มล|มิลลิลิตร|l|ลิตร|g|กรัม|kg|กก\.?|กิโลกรัม|กิโล)/i.exec(previousUser.text);
+      if (!unitMatch) return null;
+      return parseSimpleIngredientCommand(`${previousUser.text} ปริมาณ ${numericAnswer[1]} ${normalizeUnit(unitMatch[1])}`);
+    }
+    return null;
+  }
+
+  const previousPrices = [...previousUser.text.matchAll(/(\d+(?:[.,]\d+)?)\s*(?:บาท|บ\.?|฿)/gi)];
+  const previousPrice = previousPrices.length ? previousPrices[previousPrices.length - 1][1] : null;
+  if (!previousPrice) return null;
+
+  if (/รวมทั้งหมด|ราคารวม|รวมทั้งสิ้น/i.test(answer)) {
+    return parseSimpleIngredientCommand(`${previousUser.text} ราคารวม ${previousPrice} บาท`);
+  }
+  if (packageUnitMatch && /^(?:ต่อ|\/)?\s*(?:ขวด|ถุง|แพ็ก|แพ็ค|แพค|กล่อง|ถัง|ลัง|ชิ้น|ชุด|กระป๋อง|ซอง|ห่อ|หลอด)$/i.test(answer)) {
+    return parseSimpleIngredientCommand(`${previousUser.text} ราคา ${previousPrice} บาท${answer.replace(/^ต่อ\s*/i, " ต่อ")}`);
+  }
+  return null;
 }

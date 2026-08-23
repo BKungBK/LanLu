@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseSimpleIngredientCommand } from "./assistant-parser";
+import { parseIngredientFollowUp, parseSimpleIngredientCommand } from "./assistant-parser";
 
 describe("parseSimpleIngredientCommand", () => {
   it("parses the explicit Thai milk purchase command without Gemini", () => {
@@ -58,6 +58,46 @@ describe("parseSimpleIngredientCommand", () => {
     expect(turn?.status).toBe("question");
     if (!turn || turn.status !== "question") return;
     expect(turn.questions[0].id).toBe("purchase-price-scope");
+  });
+
+  it("parses an inventory message without a command prefix", () => {
+    const turn = parseSimpleIngredientCommand("ผงกาแฟ 2 ถุง 20กรัม 70 บาท");
+    expect(turn?.status).toBe("question");
+    if (!turn || turn.status !== "question") return;
+    expect(turn.questions[0].id).toBe("purchase-price-scope");
+  });
+
+  it("resolves a numeric answer using the previous assistant question", () => {
+    const turn = parseIngredientFollowUp("70", [
+      { role: "user", text: "ผงกาแฟ 2 ถุง 20กรัม 70 บาท" },
+      { role: "assistant", text: "ระบุราคาซื้อ 20 บาทต่อถุง" },
+      { role: "user", text: "70" },
+    ]);
+    expect(turn?.status).toBe("draft");
+    if (!turn || turn.status !== "draft") return;
+    expect(turn.drafts[0].rows[0]).toMatchObject({ name: "ผงกาแฟ", packageCount: 2, contentQuantity: 20, contentUnit: "g", purchasePrice: 140, unitCost: 3.5 });
+  });
+
+  it("resolves a scope quick reply without another model call", () => {
+    const turn = parseIngredientFollowUp("ต่อถุง", [
+      { role: "user", text: "ผงกาแฟ 2 ถุง 20กรัม 70 บาท" },
+      { role: "assistant", text: "ราคา 70 บาทเป็นราคาต่อถุงหรือราคารวมทั้งหมด?" },
+      { role: "user", text: "ต่อถุง" },
+    ]);
+    expect(turn?.status).toBe("draft");
+    if (!turn || turn.status !== "draft") return;
+    expect(turn.drafts[0].rows[0]).toMatchObject({ purchasePrice: 140, unitCost: 3.5 });
+  });
+
+  it("resolves a missing quantity answer using the unit in the question", () => {
+    const turn = parseIngredientFollowUp("500", [
+      { role: "user", text: "ผมมี นม 10 ขวด ราคา 20 ต่อขวด" },
+      { role: "assistant", text: "ระบุปริมาณต่อขวด เช่น 500 ml" },
+      { role: "user", text: "500" },
+    ]);
+    expect(turn?.status).toBe("draft");
+    if (!turn || turn.status !== "draft") return;
+    expect(turn.drafts[0].rows[0]).toMatchObject({ quantityOnHand: 5000, contentQuantity: 500, contentUnit: "ml", purchasePrice: 200 });
   });
 
   it("defers ambiguous commands to the normal assistant path", () => {
