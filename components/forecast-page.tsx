@@ -20,7 +20,7 @@ export function ForecastPage() {
   return <>
     <PageHeader eyebrow="คาดการณ์" title="พรุ่งนี้ร้านควรเตรียมอะไร" description="Baseline forecast ที่อธิบายได้จากยอดขายจริง ไม่ใช้ ML ใน v1" action={<DatePill>คาดการณ์ 7 วันถัดไป</DatePill>} />
     <div className="forecast-hero">
-      <SectionCard className="forecast-chart-card" title="จำนวนแก้วที่คาดการณ์" description="ช่วงคาดการณ์แสดงเป็นแถบต่ำ–สูง" action={<span className="status-badge status-info"><IconChartLine size={13} />baseline</span>}>
+      <SectionCard className="forecast-chart-card" title="จำนวนแก้วที่คาดการณ์" description="ช่วงคาดการณ์แสดงเป็นแถบต่ำถึงสูง" action={<span className="status-badge status-info"><IconChartLine size={13} />baseline</span>}>
         <div className="forecast-chart" role="img" aria-label="กราฟยอดขายที่คาดการณ์ 7 วันถัดไป">{points.map((point) => <div className="forecast-col" key={point.date}><span className="forecast-value">{point.predictedUnits}</span><div className="forecast-bars"><div className="forecast-bar low" style={{ height: `${Math.max(8, (point.low ?? 0) / max * 100)}%` }} /><div className="forecast-bar predicted" style={{ height: `${Math.max(8, point.predictedUnits / max * 100)}%` }} /></div><span className="forecast-label">{labelDate(point.date)}</span></div>)}</div>
         <div className="chart-legend"><span className="legend"><i style={{ background: "var(--clay)" }} />ค่ากลางที่คาดการณ์</span><span className="legend"><i style={{ background: "var(--honey)", opacity: .6 }} />ขอบล่าง</span></div>
       </SectionCard>

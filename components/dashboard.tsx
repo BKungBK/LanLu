@@ -31,9 +31,15 @@ export function Dashboard() {
     <PageHeader eyebrow="ภาพรวมร้าน" title={`สวัสดี ${state.shop.ownerName}`} description="ร้านรู้เห็นอะไรวันนี้ จากข้อมูลที่คุณบันทึกไว้" action={<><DatePill /><Link href="/assistant" className="button button-soft">ลองให้ผู้ช่วยช่วยจัดข้อมูล</Link></>} />
 
     <div className="signal-strip" aria-label="ร้านรู้เห็นอะไรวันนี้">
-      <div className="signal-item signal-sage"><span className="signal-icon"><IconArrowUpRight size={17} /></span><div><strong>วันนี้ขายดีอะไร</strong><p>{bestSeller ? `${bestSeller.name} · ${bestSeller.units} แก้ว` : "ยังไม่มีข้อมูลยอดขาย"}</p></div></div>
-      <div className="signal-item signal-honey"><span className="signal-icon"><IconAlertTriangle size={17} /></span><div><strong>อะไรต้องระวัง</strong><p>{alertIngredients.length ? `${alertIngredients.length} วัตถุดิบต่ำกว่าจุดสั่งซื้อ` : "สต๊อกอยู่ในระดับปกติ"}</p></div></div>
-      <div className="signal-item signal-clay"><span className="signal-icon"><IconSparkles size={17} /></span><div><strong>วันนี้ควรทำอะไรต่อ</strong><p>{visibleRecommendations[0]?.title ?? "บันทึกยอดขายรอบถัดไป"}</p></div></div>
+      <Link href="/sales" className="signal-item signal-sage" aria-label="ดูยอดขายวันนี้">
+        <span className="signal-icon"><IconArrowUpRight size={17} /></span><div><strong>วันนี้ขายดีอะไร</strong><p>{bestSeller ? `${bestSeller.name} · ${bestSeller.units} แก้ว` : "ยังไม่มีข้อมูลยอดขาย"}</p></div>
+      </Link>
+      <Link href="/inventory" className="signal-item signal-honey" aria-label="ดูวัตถุดิบที่ต้องระวัง">
+        <span className="signal-icon"><IconAlertTriangle size={17} /></span><div><strong>อะไรต้องระวัง</strong><p>{alertIngredients.length ? `${alertIngredients.length} วัตถุดิบต่ำกว่าจุดสั่งซื้อ` : "สต๊อกอยู่ในระดับปกติ"}</p></div>
+      </Link>
+      <Link href={visibleRecommendations.length ? "/recommendations" : "/capture"} className="signal-item signal-clay" aria-label={visibleRecommendations.length ? "ดูคำแนะนำที่ทำต่อได้" : "ไปบันทึกยอดขาย"}>
+        <span className="signal-icon"><IconSparkles size={17} /></span><div><strong>วันนี้ควรทำอะไรต่อ</strong><p>{visibleRecommendations[0]?.title ?? "บันทึกยอดขายรอบถัดไป"}</p></div>
+      </Link>
     </div>
 
     <div className="kpi-grid">

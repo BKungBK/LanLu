@@ -1,12 +1,15 @@
 import type { AssistantTurn } from "./types";
-import { calculatePurchaseUnitCost } from "./catalog";
+import { calculatePurchaseUnitCost, getUnitConversionFactor } from "./catalog";
 
 const numberPattern = "(\\d+(?:[.,]\\d+)?)";
 const packageUnitPattern = "(ขวด|ถุง|แพ็ก|แพ็ค|แพค|กล่อง|ถัง|ลัง|ชิ้น|ชุด|กระป๋อง|ซอง|ห่อ|หลอด)";
 const contentUnitPattern = "(ml|มล|มิลลิลิตร|l|ลิตร|g|กรัม|kg|กก\\.?|กิโลกรัม|กิโล)";
 
 function numeric(value: string) {
-  return Number(value.replace(",", "."));
+  const thaiDigits = value.replace(/[๐-๙]/g, (digit) => String("๐๑๒๓๔๕๖๗๘๙".indexOf(digit)));
+  if (thaiDigits.includes(".") && thaiDigits.includes(",")) return Number(thaiDigits.replace(/,/g, ""));
+  if (/,\d{3}(?:,|$)/.test(thaiDigits)) return Number(thaiDigits.replace(/,/g, ""));
+  return Number(thaiDigits.replace(",", "."));
 }
 
 function normalizeUnit(value: string) {
@@ -28,6 +31,178 @@ function questionTurn(id: string, label: string, message = label, options?: stri
     message,
     questions: [{ id, label, inputType: options ? "select" : "number", ...(options ? { options } : {}) }],
   };
+}
+
+function textQuestionTurn(id: string, label: string, message = label): AssistantTurn {
+  return {
+    status: "question",
+    message,
+    questions: [{ id, label, inputType: "text" }],
+  };
+}
+
+export type MenuSetupContext = {
+  ingredients: Array<{ name: string; unit: string }>;
+  menus?: string[];
+};
+
+export type AssistantConversationMessage = { role: "user" | "assistant"; text: string };
+
+const menuCommandPattern = /^(?:(?:ตอนนี้|ขอ|ช่วย|อยาก)\s*)*(?:(?:ผม|ฉัน|เรา)\s*)?(?:เพิ่ม|สร้าง|ทำ|ตั้ง(?:ค่า)?)\s*เมนู\s*(?:[:：-]\s*)?/i;
+const recipeUnitPattern = "(ml|มล|มิลลิลิตร|l|ลิตร|g|กรัม|kg|กก\\.?|กิโลกรัม|กิโล|ชิ้น|หน่วย|ขวด|แก้ว|ช้อนโต๊ะ|ช้อนชา)";
+
+function normalizeText(value: string) {
+  return value.trim().replace(/\s+/g, " ").replace(/[，]/g, ",");
+}
+
+function normalizeName(value: string) {
+  return value.trim().replace(/^(?:และ|กับ|ใช้|วัตถุดิบ|ส่วนผสม)\s+/i, "").replace(/\s+(?:และ|กับ)\s*$/i, "").trim();
+}
+
+function findMenuCommand(text: string) {
+  const normalized = normalizeText(text);
+  const command = menuCommandPattern.exec(normalized);
+  if (!command) return null;
+  const body = normalized.slice(command[0].length).trim();
+  if (!body) return null;
+  const marker = /(?:พร้อม|ราคา|ขาย|หมวด|ประเภท|ใช้|สูตร|วัตถุดิบ|ส่วนผสม|ให้ครบ|[,;:])/i.exec(body);
+  const name = normalizeName(marker ? body.slice(0, marker.index) : body);
+  if (!name || /^(?:พร้อม|วัตถุดิบ|ส่วนผสม|สูตร|ให้ครบ)$/i.test(name)) return null;
+  return { text: normalized, name, details: marker ? body.slice(marker.index) : "" };
+}
+
+export function isMenuSetupMessage(message: string) {
+  return findMenuCommand(message) !== null;
+}
+
+export function hasMenuSetupConversation(conversation: AssistantConversationMessage[]) {
+  return conversation.at(-1)?.role === "user" && conversation.some((item) => isMenuSetupMessage(item.text));
+}
+
+function parseMenuPrice(text: string) {
+  const number = "(\\d+(?:[.,]\\d+)?)";
+  const match = new RegExp(`(?:ราคาขาย|ขาย|ราคา)\\s*(?:คือ|เป็น|อยู่ที่|[:=])?\\s*${number}\\s*(?:บาท|บ\\.?|฿)?`, "i").exec(text);
+  if (match) return numeric(match[1]);
+  const barePrices = Array.from(text.matchAll(new RegExp(`${number}\\s*(?:บาท|บ\\.?|฿)`, "gi")));
+  return barePrices.length ? numeric(barePrices.at(-1)![1]) : null;
+}
+
+function parseMenuCategory(text: string) {
+  const match = /(?:หมวด|ประเภท)\s*(?:คือ|เป็น|[:=])?\s*([^,;\s]+)/i.exec(text);
+  return match?.[1]?.trim() || "อื่น ๆ";
+}
+
+function parseRecipeRows(details: string) {
+  const number = "\\d+(?:[.,]\\d+)?";
+  const withoutPrice = details.replace(new RegExp(`(?:ราคาขาย|ขาย|ราคา)\\s*(?:คือ|เป็น|อยู่ที่|[:=])?\\s*${number}\\s*(?:บาท|บ\\.?|฿)?|${number}\\s*(?:บาท|บ\\.?|฿)`, "gi"), " ");
+  const recipeText = withoutPrice.replace(/(?:พร้อม\s*)?(?:วัตถุดิบ|ส่วนผสม|สูตร)(?:\s*ให้ครบ)?/gi, " ").replace(/(?:ใช้|ประกอบด้วย)\s*/gi, " ");
+  const matches = recipeText.matchAll(new RegExp(`([^,;|]+?)\\s*(${number})\\s*${recipeUnitPattern}`, "gi"));
+  const rows: Array<{ name: string; quantity: number; unit: string }> = [];
+  for (const match of matches) {
+    const name = normalizeName(match[1]);
+    const quantity = numeric(match[2]);
+    const unit = normalizeUnit(match[3]);
+    if (name && quantity > 0) rows.push({ name, quantity, unit });
+  }
+  return rows;
+}
+
+function matchKnownIngredient(name: string, context: MenuSetupContext) {
+  const normalized = name.toLocaleLowerCase("th-TH");
+  const exact = context.ingredients.filter((ingredient) => ingredient.name.trim().toLocaleLowerCase("th-TH") === normalized);
+  if (exact.length === 1) return exact[0];
+  const close = context.ingredients.filter((ingredient) => {
+    const candidate = ingredient.name.trim().toLocaleLowerCase("th-TH");
+    return candidate.includes(normalized) || normalized.includes(candidate);
+  });
+  return close.length === 1 ? close[0] : undefined;
+}
+
+function buildMenuDraft(menu: { name: string; price: number; category: string }, recipeRows: Array<{ name: string; quantity: number; unit: string }>, context: MenuSetupContext): AssistantTurn {
+  const unknown = recipeRows.filter((row) => !matchKnownIngredient(row.name, context));
+  if (unknown.length > 0) {
+    const names = unknown.map((row) => `“${row.name}”`).join(", ");
+    return textQuestionTurn(
+      "menu-unknown-ingredients",
+      `ยังไม่พบ ${names} ในรายการวัตถุดิบ ให้เพิ่มวัตถุดิบก่อน หรือพิมพ์ชื่อวัตถุดิบที่มีอยู่`,
+      `ยังไม่พบ ${names} ในรายการวัตถุดิบ จึงยังไม่สร้างสูตรให้ยืนยัน เพื่อไม่ให้สูตรผูกกับรายการผิดตัว`,
+    );
+  }
+
+  const incompatible = recipeRows.find((row) => {
+    const ingredient = matchKnownIngredient(row.name, context)!;
+    return getUnitConversionFactor(row.unit, ingredient.unit) === null;
+  });
+  if (incompatible) {
+    const ingredient = matchKnownIngredient(incompatible.name, context)!;
+    return textQuestionTurn(
+      "menu-unit-mismatch",
+      `หน่วยของ ${ingredient.name} ต้องเป็น ${ingredient.unit} หรือหน่วยที่แปลงเป็น ${ingredient.unit} ได้`,
+      `หน่วย ${incompatible.unit} ของ ${ingredient.name} แปลงเป็น ${ingredient.unit} ไม่ได้ จึงยังไม่สร้างสูตรเพื่อป้องกันตัวเลขผิด`,
+    );
+  }
+
+  const resolvedRecipeRows = recipeRows.map((row) => {
+    const ingredient = matchKnownIngredient(row.name, context)!;
+    const factor = getUnitConversionFactor(row.unit, ingredient.unit) ?? 1;
+    return { menuName: menu.name, ingredientName: ingredient.name, quantity: Number((row.quantity * factor).toFixed(6)), unit: ingredient.unit || row.unit };
+  });
+  const warnings = [
+    "เมนูและสูตรจะบันทึกพร้อมกันแบบ transaction เดียว ตรวจชื่อวัตถุดิบ ปริมาณ และราคาก่อนยืนยัน",
+    ...(menu.category === "อื่น ๆ" ? ["ยังไม่ได้ระบุหมวด ระบบจึงจัดไว้ที่ “อื่น ๆ”"] : []),
+    ...(context.menus?.some((name) => name.trim().toLocaleLowerCase("th-TH") === menu.name.trim().toLocaleLowerCase("th-TH")) ? ["พบชื่อเมนูนี้อยู่แล้ว ระบบจะไม่สร้างชื่อซ้ำ"] : []),
+  ];
+  return {
+    status: "draft",
+    message: `เตรียมร่างเมนู “${menu.name}” พร้อมสูตร ${resolvedRecipeRows.length} รายการ ให้ตรวจสอบก่อนบันทึก`,
+    drafts: [
+      { kind: "menu", source: "gemini", rows: [{ name: menu.name, category: menu.category, price: menu.price, active: true }], warnings: [] },
+      { kind: "recipe", source: "gemini", rows: resolvedRecipeRows, warnings: [] },
+    ],
+    warnings,
+  };
+}
+
+function buildMenuQuestion(menu: { name: string; price: number | null }, recipeRows: Array<{ name: string; quantity: number; unit: string }>, context: MenuSetupContext, details: string): AssistantTurn {
+  if (menu.price === null || menu.price <= 0) {
+    return questionTurn("menu-price", `เมนู “${menu.name}” ราคาขายเท่าไร?`, `เมนู “${menu.name}” ราคาขายเท่าไร? ระบุเป็นบาท เช่น 75`, undefined);
+  }
+  if (recipeRows.length === 0) {
+    return textQuestionTurn("menu-ingredients", `เมนู “${menu.name}” ใช้วัตถุดิบอะไรและปริมาณเท่าไร?`, `เมนู “${menu.name}” ใช้วัตถุดิบอะไรและปริมาณเท่าไร? เช่น นมสด 150 ml และผงกาแฟ 18 g`);
+  }
+  return buildMenuDraft({ name: menu.name, price: menu.price, category: parseMenuCategory(details) }, recipeRows, context);
+}
+
+export function parseMenuSetupCommand(message: string, context: MenuSetupContext): AssistantTurn | null {
+  const command = findMenuCommand(message);
+  if (!command) return null;
+  const price = parseMenuPrice(command.text);
+  const recipeRows = parseRecipeRows(command.details);
+  return buildMenuQuestion({ name: command.name, price }, recipeRows, context, command.details);
+}
+
+export function parseMenuSetupFollowUp(message: string, conversation: AssistantConversationMessage[], context: MenuSetupContext): AssistantTurn | null {
+  const answer = normalizeText(message);
+  if (!answer || conversation.at(-1)?.role !== "user") return null;
+  const previous = conversation.slice(0, -1);
+  const menuRequest = [...previous].reverse().find((item) => item.role === "user" && isMenuSetupMessage(item.text));
+  const previousAssistant = [...previous].reverse().find((item) => item.role === "assistant");
+  if (!menuRequest || !previousAssistant) return null;
+  const command = findMenuCommand(menuRequest.text);
+  if (!command) return null;
+  const menuRequestIndex = previous.lastIndexOf(menuRequest);
+  const priorAnswers = menuRequestIndex >= 0 ? previous.slice(menuRequestIndex + 1).filter((item) => item.role === "user").map((item) => item.text) : [];
+  const priorDetails = priorAnswers.map((item) => /^(?:ราคา\s*)?\d+(?:[.,]\d+)?\s*(?:บาท|บ\.?|฿)?$/i.test(item.trim()) ? `ราคา ${item}` : item).join(" ");
+
+  if (/ราคาขาย|ราคาขายเท่าไร|ราคาขายเท่าไหร่/i.test(previousAssistant.text)) {
+    const priceMatch = /^(?:ราคา\s*)?(\d+(?:[.,]\d+)?)\s*(?:บาท|บ\.?|฿)?$/i.exec(answer);
+    if (!priceMatch) return null;
+    return parseMenuSetupCommand(`${menuRequest.text} ${priorDetails} ราคา ${priceMatch[1]} บาท`, context);
+  }
+  if (/ใช้วัตถุดิบ|วัตถุดิบอะไร|ปริมาณเท่าไร|ปริมาณเท่าไหร่/i.test(previousAssistant.text)) {
+    return parseMenuSetupCommand(`${menuRequest.text} ${priorDetails} ใช้ ${answer}`, context);
+  }
+  return null;
 }
 
 /**
@@ -150,8 +325,6 @@ export function parseSimpleIngredientCommand(message: string): AssistantTurn | n
     warnings: ["ยังไม่บันทึกจนกดตรวจแล้ว ยืนยันชุดข้อมูล", ...warnings],
   };
 }
-
-type AssistantConversationMessage = { role: "user" | "assistant"; text: string };
 
 /**
  * Resolves a short answer such as "70" against the immediately preceding

@@ -3,7 +3,7 @@ import { GoogleGenAI } from "@google/genai";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import type { AssistantTurn, CsvMappingSuggestion } from "@/lib/types";
-import { parseIngredientFollowUp, parseSimpleIngredientCommand } from "@/lib/assistant-parser";
+import { hasMenuSetupConversation, isMenuSetupMessage, parseIngredientFollowUp, parseMenuSetupCommand, parseMenuSetupFollowUp, parseSimpleIngredientCommand } from "@/lib/assistant-parser";
 
 export const runtime = "nodejs";
 
@@ -103,6 +103,14 @@ const responseJsonSchema = {
 
 type CatalogContext = { ingredients: Array<{ name: string; unit: string; unitCost: number; hasPurchase: boolean }>; menus: string[]; units: string[]; categories: string[] };
 
+function assistantRepairTurn(): AssistantTurn {
+  return {
+    status: "question",
+    message: "ผมอ่านคำสั่งนี้ได้บางส่วน แต่ยังจัดข้อมูลให้เป็น draft ที่ปลอดภัยไม่ได้ จึงยังไม่บันทึกข้อมูล ลองระบุชื่อเมนู ราคา และวัตถุดิบพร้อมปริมาณอีกครั้ง",
+    questions: [{ id: "assistant-repair", label: "ระบุชื่อเมนู ราคา และวัตถุดิบพร้อมปริมาณ", inputType: "text" }],
+  };
+}
+
 async function loadCatalogContext(supabase: Awaited<ReturnType<typeof createClient>>, shopId: string): Promise<CatalogContext> {
   const [ingredientsResult, menusResult, categoriesResult] = await Promise.all([
     supabase.from("ingredients").select("name, unit, unit_cost, purchase_package_unit, purchase_content_unit").eq("shop_id", shopId).eq("active", true).order("created_at").limit(60),
@@ -140,7 +148,9 @@ function buildPrompt(message: string, conversation: z.infer<typeof chatMessageSc
 }
 
 function normalizeTurn(raw: unknown): AssistantTurn {
-  const parsed = turnSchema.parse(raw);
+  const parsedResult = turnSchema.safeParse(raw);
+  if (!parsedResult.success) return assistantRepairTurn();
+  const parsed = parsedResult.data;
   if (parsed.status === "question") return { status: "question", message: parsed.message, questions: parsed.questions.slice(0, 1) };
   if (parsed.status === "answer") return { status: "answer", message: parsed.message, calculations: parsed.calculations, csvMapping: parsed.csvMapping as CsvMappingSuggestion | undefined };
   return { status: "draft", message: parsed.message, calculations: parsed.calculations, drafts: parsed.drafts.map((draft) => ({ ...draft, source: "gemini" as const })), warnings: parsed.warnings.concat(parsed.drafts.flatMap((draft) => draft.warnings)) };
@@ -172,19 +182,36 @@ export async function POST(request: Request) {
   if (fastPath) return NextResponse.json({ turn: fastPath, ...fastPath });
   const followUp = parseIngredientFollowUp(body.data.message, body.data.conversation);
   if (followUp) return NextResponse.json({ turn: followUp, ...followUp });
+
+  let catalogContext: CatalogContext | null = null;
+  const menuFlow = isMenuSetupMessage(body.data.message) || hasMenuSetupConversation(body.data.conversation);
+  if (menuFlow) {
+    const { data: member, error: memberError } = await supabase.from("shop_members").select("shop_id").eq("user_id", user.id).order("created_at", { ascending: true }).limit(1).maybeSingle();
+    if (memberError || !member?.shop_id) return NextResponse.json({ error: "ไม่พบร้านของบัญชีนี้" }, { status: 403 });
+    catalogContext = await loadCatalogContext(supabase, member.shop_id as string);
+    const menuTurn = parseMenuSetupCommand(body.data.message, catalogContext) ?? parseMenuSetupFollowUp(body.data.message, body.data.conversation, catalogContext);
+    if (menuTurn) return NextResponse.json({ turn: menuTurn, ...menuTurn });
+  }
   if (!process.env.GEMINI_API_KEY) return NextResponse.json({ error: "ยังไม่ได้ตั้งค่า Gemini ฝั่ง server" }, { status: 503 });
 
-  const { data: member, error: memberError } = await supabase.from("shop_members").select("shop_id").eq("user_id", user.id).order("created_at", { ascending: true }).limit(1).maybeSingle();
-  if (memberError || !member?.shop_id) return NextResponse.json({ error: "ไม่พบร้านของบัญชีนี้" }, { status: 403 });
-  const context = await loadCatalogContext(supabase, member.shop_id as string);
-  const prompt = buildPrompt(body.data.message, body.data.conversation, context, body.data.csvPreview);
+  if (!catalogContext) {
+    const { data: member, error: memberError } = await supabase.from("shop_members").select("shop_id").eq("user_id", user.id).order("created_at", { ascending: true }).limit(1).maybeSingle();
+    if (memberError || !member?.shop_id) return NextResponse.json({ error: "ไม่พบร้านของบัญชีนี้" }, { status: 403 });
+    catalogContext = await loadCatalogContext(supabase, member.shop_id as string);
+  }
+  const prompt = buildPrompt(body.data.message, body.data.conversation, catalogContext, body.data.csvPreview);
   const model = process.env.GEMINI_MODEL?.trim() || "gemini-3.5-flash-lite";
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY, httpOptions: { timeout: 8_000, retryOptions: { attempts: 1 } } });
   try {
     const turn = await generateTurn(ai, model, prompt);
     return NextResponse.json({ turn, ...turn });
   } catch (error) {
-    console.error("assistant generation failed", error instanceof Error ? error.message : "unknown error");
+    const errorMessage = error instanceof Error ? error.message : "unknown error";
+    console.error("assistant generation failed", errorMessage);
+    if (/schema|json|invalid_argument|response|format/i.test(errorMessage)) {
+      const turn = assistantRepairTurn();
+      return NextResponse.json({ turn, ...turn });
+    }
     return NextResponse.json({ error: "ผู้ช่วยตอบไม่สำเร็จภายในเวลาที่กำหนด ลองย่อคำสั่งหรือส่งใหม่อีกครั้ง" }, { status: 502 });
   }
 }

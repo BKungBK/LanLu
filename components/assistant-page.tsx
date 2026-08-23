@@ -57,7 +57,10 @@ export function AssistantPage() {
   const [conflictMode, setConflictMode] = useState<"create" | "update" | "skip">("create");
   const [csvError, setCsvError] = useState("");
   const [feedback, setFeedback] = useState("");
+  const [feedbackTone, setFeedbackTone] = useState<"success" | "error">("success");
   const [lastFailedPrompt, setLastFailedPrompt] = useState("");
+  const [bundleIdempotencyKey, setBundleIdempotencyKey] = useState("");
+  const [csvIdempotencyKey, setCsvIdempotencyKey] = useState("");
   const [pending, setPending] = useState(false);
   const pendingRef = useRef(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -84,21 +87,25 @@ export function AssistantPage() {
     if (!currentPrompt || pendingRef.current) return;
     const nextConversation = [...messages, { role: "user" as const, text: currentPrompt }].slice(-12);
     pendingRef.current = true;
-    setMessages((current) => [...current, { role: "user", text: currentPrompt }]); setPending(true); setFeedback("");
+    setMessages((current) => [...current, { role: "user", text: currentPrompt }]); setPending(true); setFeedback(""); setFeedbackTone("success");
     const controller = new AbortController();
     const timeoutId = window.setTimeout(() => controller.abort(), 12_000);
     try {
       const response = await fetch("/api/assistant", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: currentPrompt, conversation: nextConversation }), signal: controller.signal });
       const payload = await response.json() as { turn?: AssistantTurn; error?: string };
-      if (!response.ok || !payload.turn) { setPrompt(currentPrompt); setLastFailedPrompt(currentPrompt); setFeedback(payload.error ?? "ผู้ช่วยตอบไม่สำเร็จ"); return; }
+      if (!response.ok || !payload.turn) { setPrompt(currentPrompt); setLastFailedPrompt(currentPrompt); setFeedbackTone("error"); setFeedback(payload.error ?? "ผู้ช่วยตอบไม่สำเร็จ"); return; }
       const turn = payload.turn;
       setPrompt("");
       setLastFailedPrompt("");
       setMessages((current) => [...current, { role: "assistant", text: turn.message, turn }]);
-      if (turn.status === "draft") setBundle({ source: "gemini", drafts: turn.drafts, warnings: turn.warnings, calculations: turn.calculations });
+      if (turn.status === "draft") {
+        setBundle({ source: "gemini", drafts: turn.drafts, warnings: turn.warnings, calculations: turn.calculations });
+        setBundleIdempotencyKey(`assistant-bundle-${crypto.randomUUID()}`);
+      }
     } catch (error) {
       setPrompt(currentPrompt);
       setLastFailedPrompt(currentPrompt);
+      setFeedbackTone("error");
       setFeedback(error instanceof Error && error.name === "AbortError" ? "ผู้ช่วยใช้เวลานานเกินไป ลองส่งใหม่อีกครั้ง" : "เชื่อมต่อผู้ช่วยไม่สำเร็จ ลองใหม่อีกครั้ง");
     } finally {
       window.clearTimeout(timeoutId);
@@ -110,11 +117,15 @@ export function AssistantPage() {
   const confirmBundle = async () => {
     if (!bundle || pending || bundle.drafts.length === 0) return;
     setPending(true); setFeedback("");
+    const idempotencyKey = bundleIdempotencyKey || `assistant-bundle-${crypto.randomUUID()}`;
+    setBundleIdempotencyKey(idempotencyKey);
     try {
-      const result = await importCatalogBundle({ bundle, idempotencyKey: `assistant-bundle-${crypto.randomUUID()}`, conflictMode: "create" });
+      const result = await importCatalogBundle({ bundle, idempotencyKey, conflictMode: "create" });
+      setFeedbackTone(result.ok ? "success" : "error");
       setFeedback(result.message);
-      if (result.ok) { setBundle(null); setMessages(initialMessages); setQuestionDrafts({}); setLastFailedPrompt(""); }
+      if (result.ok) { setBundle(null); setBundleIdempotencyKey(""); setMessages(initialMessages); setQuestionDrafts({}); setLastFailedPrompt(""); }
     } catch {
+      setFeedbackTone("error");
       setFeedback("บันทึก draft ไม่สำเร็จ ระบบพร้อมให้ลองส่งคำสั่งใหม่");
     } finally {
       setPending(false);
@@ -123,7 +134,7 @@ export function AssistantPage() {
 
   const handleCsv = async (file?: File) => {
     if (!file) return;
-    setCsvError(""); setFeedback(""); setCsvRows([]); setCsvText("");
+    setCsvError(""); setFeedback(""); setFeedbackTone("success"); setCsvRows([]); setCsvText(""); setCsvIdempotencyKey(`csv-${crypto.randomUUID()}`);
     try {
       const text = await file.text();
       const allRows = parseCsv(text);
@@ -134,8 +145,8 @@ export function AssistantPage() {
       const response = await fetch("/api/assistant", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ csvPreview: { headers, samples: allRows.slice(0, 5) } }) });
       const payload = await response.json() as { turn?: AssistantTurn; error?: string };
       if (payload.turn?.status === "answer" && payload.turn.csvMapping) { setCsvKind(payload.turn.csvMapping.detectedKind); setCsvMapping(payload.turn.csvMapping.mapping); setCsvConfidence(payload.turn.csvMapping.confidence); }
-      if (!response.ok && payload.error) setFeedback(payload.error);
-    } catch { setCsvError("อ่าน CSV ไม่สำเร็จ ตรวจ encoding และหัวตาราง"); }
+      if (!response.ok && payload.error) { setFeedbackTone("error"); setFeedback(payload.error); }
+    } catch { setFeedbackTone("error"); setCsvError("อ่าน CSV ไม่สำเร็จ ตรวจ encoding และหัวตาราง"); }
   };
 
   const applyMapping = () => {
@@ -149,11 +160,15 @@ export function AssistantPage() {
   const confirmCsv = async () => {
     if (csvHasErrors || !csvRows.length || pending) return;
     setPending(true); setFeedback("");
+    const idempotencyKey = csvIdempotencyKey || `csv-${crypto.randomUUID()}`;
+    setCsvIdempotencyKey(idempotencyKey);
     try {
-      const result = await importCatalog({ kind: csvKind, rows: stripMeta(csvValidated), idempotencyKey: `csv-${crypto.randomUUID()}`, conflictMode });
+      const result = await importCatalog({ kind: csvKind, rows: stripMeta(csvValidated), idempotencyKey, conflictMode });
+      setFeedbackTone(result.ok ? "success" : "error");
       setFeedback(result.message);
-      if (result.ok) { setCsvRows([]); setCsvText(""); setCsvHeaders([]); }
+      if (result.ok) { setCsvRows([]); setCsvText(""); setCsvHeaders([]); setCsvIdempotencyKey(""); }
     } catch {
+      setFeedbackTone("error");
       setFeedback("นำเข้า CSV ไม่สำเร็จ ระบบพร้อมให้ลองใหม่");
     } finally {
       setPending(false);
@@ -161,12 +176,12 @@ export function AssistantPage() {
   };
 
   return <>
-    <PageHeader eyebrow="LanLu workspace" title="ผู้ช่วยและนำเข้าข้อมูล" description="คุยด้วยภาษาธรรมชาติ ให้ระบบเตรียม draft และตรวจทุกอย่างก่อนบันทึก" action={<div className="assistant-tabs"><button type="button" className={`assistant-tab ${mode === "gemini" ? "active" : ""}`} onClick={() => setMode("gemini")}><IconSparkles size={14} /> ผู้ช่วย Gemini</button><button type="button" className={`assistant-tab ${mode === "csv" ? "active" : ""}`} onClick={() => setMode("csv")}><IconFileUpload size={14} /> นำเข้า CSV</button></div>} />
+    <PageHeader eyebrow="LanLu workspace" title="ผู้ช่วยและนำเข้าข้อมูล" description="คุยด้วยภาษาธรรมชาติ ให้ระบบเตรียม draft และตรวจทุกอย่างก่อนบันทึก" action={<div className="assistant-tabs" data-mode={mode} role="tablist" aria-label="โหมดผู้ช่วย"><button type="button" role="tab" aria-selected={mode === "gemini"} className={`assistant-tab ${mode === "gemini" ? "active" : ""}`} onClick={() => setMode("gemini")}><IconSparkles size={14} /> ผู้ช่วย Gemini</button><button type="button" role="tab" aria-selected={mode === "csv"} className={`assistant-tab ${mode === "csv" ? "active" : ""}`} onClick={() => setMode("csv")}><IconFileUpload size={14} /> นำเข้า CSV</button></div>} />
     {mode === "gemini" ? <div className="assistant-layout">
       <SectionCard className="assistant-chat" title="คุยกับผู้ช่วย" description="ถามต้นทุนหรือสั่งเพิ่มข้อมูลได้เลย · Gemini ไม่มีสิทธิ์บันทึกฐานข้อมูล">
         <div className="assistant-messages">{messages.map((message, index) => <div className={`assistant-message ${message.role === "user" ? "user" : ""}`} key={`${message.role}-${index}`}><strong>{message.role === "user" ? "คุณ" : "Gemini"}</strong><div>{message.text}</div><QuestionBlock turn={message.turn} values={questionDrafts} onChange={(id, value) => setQuestionDrafts((current) => ({ ...current, [id]: value }))} onAnswer={(value) => void sendMessage(value)} />{message.turn?.status === "answer" && message.turn.calculations?.length ? <div className="assistant-calculations">{message.turn.calculations.map((calculation) => <span key={`${calculation.label}-${calculation.value}`}><strong>{calculation.value}</strong> {calculation.unit}<small>{calculation.label}</small></span>)}</div> : null}</div>)}</div>
         <div className="assistant-prompt-row">{prompts.map((item) => <button type="button" className="assistant-prompt" key={item} onClick={() => setPrompt(item)}>{item}</button>)}</div>
-        <div className="assistant-composer"><textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void sendMessage(); } }} placeholder="เช่น เพิ่มสูตรลาเต้ นม 10 มิล ผงกาแฟ 2 5กรัม" maxLength={2000} /><div className="assistant-composer-footer"><span className="assistant-note">จำบริบทเฉพาะ session นี้ · ยังไม่บันทึกจนกดยืนยัน</span><button type="button" className="button button-primary" onClick={() => void sendMessage()} disabled={pending || !prompt.trim()}><IconSend size={15} />{pending ? "กำลังคิด…" : "ส่งข้อความ"}</button></div>{pending && <div className="assistant-status" role="status" aria-live="polite"><IconSparkles size={14} />Gemini กำลังวิเคราะห์ข้อมูล…</div>}{feedback && <div className="capture-feedback assistant-feedback" role="alert"><IconAlertTriangle size={14} /><span>{feedback}</span>{lastFailedPrompt && <button type="button" className="button button-quiet button-small assistant-retry" onClick={() => void sendMessage(lastFailedPrompt)} disabled={pending}><IconRotate2 size={14} />ลองส่งอีกครั้ง</button>}</div>}</div>
+        <div className="assistant-composer"><textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void sendMessage(); } }} placeholder="เช่น เพิ่มเมนูลาเต้เย็น ราคา 75 บาท ใช้นมสด 150 ml และผงกาแฟ 18 g" maxLength={2000} /><div className="assistant-composer-footer"><span className="assistant-note">จำบริบทเฉพาะ session นี้ · ยังไม่บันทึกจนกดยืนยัน</span><button type="button" className="button button-primary" onClick={() => void sendMessage()} disabled={pending || !prompt.trim()}><IconSend size={15} />{pending ? "กำลังคิด…" : "ส่งข้อความ"}</button></div>{pending && <div className="assistant-status" role="status" aria-live="polite"><IconSparkles size={14} />Gemini กำลังวิเคราะห์ข้อมูล…</div>}{feedback && <div className={`capture-feedback assistant-feedback ${feedbackTone === "error" ? "error" : "success"}`} role={feedbackTone === "error" ? "alert" : "status"}><span>{feedbackTone === "error" ? <IconAlertTriangle size={14} /> : <IconCheck size={14} />}</span><span>{feedback}</span>{lastFailedPrompt && <button type="button" className="button button-quiet button-small assistant-retry" onClick={() => void sendMessage(lastFailedPrompt)} disabled={pending}><IconRotate2 size={14} />ลองส่งอีกครั้ง</button>}</div>}</div>
       </SectionCard>
       <SectionCard className="draft-panel" title="Draft ที่แก้ไขได้" description="คำสั่งเดียวรวมวัตถุดิบ เมนู และสูตรได้ · ยืนยันครั้งเดียวแบบ transaction">
         {!bundle ? <div className="empty-state"><div className="empty-mark"><IconMessageChatbot size={23} /></div><h3>ยังไม่มี draft</h3><p>ถามข้อมูลต้นทุน หรือสั่งให้ผู้ช่วยเตรียมรายการ catalog</p></div> : <><div className="draft-header"><div><h2>ชุดข้อมูลจาก Gemini</h2><p>{bundle.drafts.length} ชนิด · {bundle.drafts.reduce((sum, draft) => sum + draft.rows.length, 0)} แถว · รอตรวจ</p></div><span className="draft-badge">ยังไม่บันทึก</span></div>{bundle.calculations?.length ? <div className="assistant-calculations draft-calculations">{bundle.calculations.map((calculation) => <span key={`${calculation.label}-${calculation.value}`}><strong>{calculation.value}</strong> {calculation.unit}<small>{calculation.label}</small></span>)}</div> : null}{bundle.drafts.map((draft, draftIndex) => <div className="draft-group" key={`${draft.kind}-${draftIndex}`}><div className="draft-group-title"><strong>{kindLabels[draft.kind]}</strong><span>{draft.rows.length} แถว</span></div><div className="draft-rows">{draft.rows.map((row, rowIndex) => <DraftRow key={rowIndex} kind={draft.kind} row={row} idPrefix={`${draftIndex}-${rowIndex}`} onChange={(key, value) => updateBundleDraft(draftIndex, rowIndex, key, value)} />)}</div></div>)}{pricingSuggestions.length > 0 && <div className="pricing-suggestions"><strong>ต้นทุนต่อเสิร์ฟคำนวณแล้ว แต่ยังไม่มีราคาขาย</strong>{pricingSuggestions.map((suggestion) => <div className="pricing-row" key={suggestion.menuName}><span>{suggestion.menuName} · ต้นทุน {suggestion.cost.toFixed(2)} บาท</span><div>{suggestion.prices.map((item) => <button type="button" className="assistant-prompt" key={item.margin} onClick={() => applySuggestedPrice(suggestion.menuName, item.price)}>กำไร {Math.round(item.margin * 100)}% · {item.price} บาท</button>)}</div></div>)}</div>}{bundle.warnings.length > 0 && <div className="draft-warning"><IconAlertTriangle size={16} />{bundle.warnings.join(" · ")}</div>}<div className="form-actions"><button type="button" className="button button-primary" onClick={() => void confirmBundle()} disabled={pending}><IconCheck size={15} />{pending ? "กำลังบันทึก…" : "ตรวจแล้ว ยืนยันชุดข้อมูล"}</button></div></>}
@@ -177,7 +192,7 @@ export function AssistantPage() {
       {csvError && <div className="auth-error" role="alert">{csvError}</div>}
       {csvHeaders.length > 0 && <div className="csv-mapping"><div className="data-note"><span><strong>แก้ mapping ก่อนอ่านข้อมูลเต็ม</strong></span><span>{csvKind === "recipe" ? "เมนู + วัตถุดิบ + ปริมาณ" : kindLabels[csvKind]}</span></div><div className="csv-mapping-grid"><div className="form-field"><label htmlFor="csv-kind">ชนิดข้อมูล</label><select id="csv-kind" className="select-input" value={csvKind} onChange={(event) => setCsvKind(event.target.value as CatalogDraftKind)}><option value="ingredient">วัตถุดิบ</option><option value="menu">เมนู</option><option value="recipe">สูตร</option></select></div>{csvHeaders.map((header) => <div className="form-field" key={header}><label htmlFor={`mapping-${header}`}>{header}</label><select id={`mapping-${header}`} className="select-input" value={csvMapping[header] ?? ""} onChange={(event) => setCsvMapping((current) => ({ ...current, [header]: event.target.value }))}><option value="">ไม่ใช้คอลัมน์นี้</option>{["name", "unit", "unitCost", "quantityOnHand", "expiresOn", "packageUnit", "packageCount", "contentQuantity", "contentUnit", "purchasePrice", "conversionFactor", "menuName", "ingredientName", "quantity", "category", "price", "active"].map((field) => <option value={field} key={field}>{field}</option>)}</select></div>)}</div><button type="button" className="button button-soft" onClick={applyMapping}><IconCheck size={15} />ใช้ mapping และ preview ข้อมูลเต็ม</button></div>}
       {!!csvValidated.length && <><div className="data-note"><span>{csvValidated.length} แถว · {csvHasErrors ? "ยังมีรายการต้องแก้" : "ผ่าน validation เบื้องต้น"}</span><span>{csvHasErrors ? "แก้ cell ที่มีพื้นหลังแดง" : "พร้อมยืนยัน"}</span></div><div className="csv-table-wrap"><table className="csv-table"><thead><tr>{Object.keys(csvValidated[0]).filter((key) => !key.startsWith("_")).map((key) => <th key={key}>{key}</th>)}<th>สถานะ</th></tr></thead><tbody>{csvValidated.map((row, index) => <tr key={index}>{Object.entries(row).filter(([key]) => !key.startsWith("_")).map(([key, value]) => <td key={key} className={(row._errors as string[]).length ? "has-error" : ""}><input className="table-input" value={String(value ?? "")} onChange={(event) => updateRows(index, key, event.target.value)} /></td>)}<td>{(row._errors as string[]).length ? <span className="csv-error">{(row._errors as string[]).join(" · ")}</span> : <IconCheck size={15} color="var(--sage-dark)" />}</td></tr>)}</tbody></table></div><div className="csv-confirm"><button type="button" className="button button-primary" onClick={() => void confirmCsv()} disabled={pending || csvHasErrors}><IconCheck size={15} />ตรวจแล้ว นำเข้า {kindLabels[csvKind]}</button></div></>}
-      {feedback && <div className="capture-feedback" role="status"><IconCheck size={14} />{feedback}</div>}
+      {feedback && <div className={`capture-feedback ${feedbackTone === "error" ? "error" : "success"}`} role={feedbackTone === "error" ? "alert" : "status"}><span>{feedbackTone === "error" ? <IconAlertTriangle size={14} /> : <IconCheck size={14} />}</span>{feedback}</div>}
     </SectionCard>}
   </>;
 }

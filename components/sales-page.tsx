@@ -51,7 +51,7 @@ export function SalesPage() {
       <KpiCard label="ยอดขายสะสม" value={formatCurrency(revenue)} detail="จากข้อมูลที่มีในระบบ" tone="up" icon={<IconCoins size={16} />} />
       <KpiCard label="จำนวนแก้ว" value={`${units} แก้ว`} detail="รวมทุกเมนู" tone="neutral" icon={<IconCup size={16} />} />
       <KpiCard label="กำไรขั้นต้นโดยประมาณ" value={formatCurrency(grossProfit)} detail="ใช้ต้นทุนจาก recipe snapshot" tone="up" icon={<IconChartBar size={16} />} />
-      <KpiCard label="เมนูขายดี" value={menuSales[0]?.name ?? "—"} detail={menuSales[0] ? `${menuSales[0].units} แก้ว` : "ยังไม่มีข้อมูล"} tone="neutral" icon={<IconArrowUpRight size={16} />} />
+      <KpiCard label="เมนูขายดี" value={menuSales[0]?.name ?? "ยังไม่มีเมนูขายดี"} detail={menuSales[0] ? `${menuSales[0].units} แก้ว` : "ยังไม่มีข้อมูล"} tone="neutral" icon={<IconArrowUpRight size={16} />} />
     </div>
     <SectionCard title="แนวโน้มจำนวนแก้ว" description="7 วันล่าสุด · ใช้ยอดจริงที่คุณบันทึก" action={<span className="status-badge status-info">ข้อมูลจริง</span>}>
       <div className="sales-chart sales-chart-large" role="img" aria-label="แนวโน้มจำนวนแก้ว 7 วันล่าสุด">{chart.map((item, index) => <div className="bar-column" key={item.date}><span className="bar-value">{item.units}</span><div className="bar-track"><div className={`bar-fill ${index >= 5 ? "peak" : ""}`} style={{ height: `${Math.max(8, item.units / max * 100)}%` }} /></div><span className="bar-label">{dayLabel(item.date)}</span></div>)}</div>

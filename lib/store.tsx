@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { AuthChangeEvent, Session, User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
-import type { CatalogBundleImportInput, CatalogImportInput, Ingredient, LanluState, MenuCategory, MenuItem, Recommendation, Recipe, Shop } from "./types";
+import type { CatalogBundleImportInput, CatalogDraftBundle, CatalogImportInput, Ingredient, LanluState, MenuCategory, MenuItem, Recommendation, Recipe, Shop } from "./types";
 
 type Result = { ok: boolean; message: string };
 export type CatalogActionResult = Result & {
@@ -92,6 +92,99 @@ function messageForError(error: { message?: string } | null, fallback: string) {
   if (message.includes("catalog_item_has_sales_history")) return "ลบไม่ได้ เพราะเมนูนี้มียอดขายย้อนหลังอยู่ · ใช้เก็บออกแทนเพื่อรักษา snapshot";
   if (message.includes("duplicate") || message.includes("unique")) return "รายการนี้ถูกบันทึกไปแล้ว";
   return message || fallback;
+}
+
+type CatalogImportRpcResult = { batchId?: string; imported?: number; replayed?: boolean };
+
+function catalogName(value: unknown) {
+  return String(value ?? "").trim().toLocaleLowerCase("th-TH");
+}
+
+async function verifyCatalogBundle(
+  supabase: ReturnType<typeof createClient>,
+  shopId: string,
+  bundle: CatalogDraftBundle,
+  batchId: string,
+  idempotencyKey: string,
+): Promise<{ ok: boolean; message?: string }> {
+  const { data: batch, error: batchError } = await supabase
+    .from("catalog_import_batches")
+    .select("id, status, row_count")
+    .eq("id", batchId)
+    .eq("shop_id", shopId)
+    .maybeSingle();
+  if (batchError || !batch || batch.status !== "completed" || Number(batch.row_count ?? 0) <= 0) {
+    return { ok: false, message: "ฐานข้อมูลยังไม่ยืนยันชุดนำเข้านี้ว่าเสร็จสมบูรณ์" };
+  }
+
+  const expectedMenuNames = bundle.drafts.flatMap((draft) => draft.kind === "menu"
+    ? draft.rows.map((row) => String(row.name ?? "").trim()).filter(Boolean)
+    : draft.kind === "recipe" ? draft.rows.map((row) => String(row.menuName ?? "").trim()).filter(Boolean) : []);
+  const expectedIngredientNames = bundle.drafts.flatMap((draft) => draft.kind === "ingredient"
+    ? draft.rows.map((row) => String(row.name ?? "").trim()).filter(Boolean)
+    : draft.kind === "recipe" ? draft.rows.map((row) => String(row.ingredientName ?? "").trim()).filter(Boolean) : []);
+
+  const [menuResult, ingredientResult] = await Promise.all([
+    supabase.from("menu_items").select("id, name, archived_at").eq("shop_id", shopId).is("archived_at", null),
+    supabase.from("ingredients").select("id, name").eq("shop_id", shopId),
+  ]);
+  if (menuResult.error || ingredientResult.error) return { ok: false, message: "บันทึกแล้วแต่ตรวจรายการล่าสุดจากฐานข้อมูลไม่ได้ ลองกดรีเฟรชอีกครั้ง" };
+
+  const menus = new Map((menuResult.data ?? []).map((item: { id: string; name: string }) => [catalogName(item.name), item.id]));
+  const ingredients = new Map((ingredientResult.data ?? []).map((item: { id: string; name: string }) => [catalogName(item.name), item.id]));
+  const missingMenus = expectedMenuNames.filter((name) => !menus.has(catalogName(name)));
+  const missingIngredients = expectedIngredientNames.filter((name) => !ingredients.has(catalogName(name)));
+  if (missingMenus.length || missingIngredients.length) {
+    const missing = [...missingMenus.map((name) => `เมนู ${name}`), ...missingIngredients.map((name) => `วัตถุดิบ ${name}`)];
+    return { ok: false, message: `ฐานข้อมูลยังไม่พบรายการที่ควรเพิ่ม: ${missing.join(", ")}` };
+  }
+
+  const expectedReceipts = bundle.drafts.filter((draft) => draft.kind === "ingredient").flatMap((draft) => draft.rows.map((row) => ({
+    ingredientId: ingredients.get(catalogName(row.name)),
+    quantity: Number(row.quantityOnHand),
+    name: String(row.name ?? ""),
+  })).filter((row) => row.ingredientId && Number.isFinite(row.quantity) && row.quantity > 0));
+  if (expectedReceipts.length) {
+    const receiptResult = await supabase
+      .from("inventory_movements")
+      .select("ingredient_id, type, quantity, idempotency_key")
+      .eq("shop_id", shopId)
+      .eq("type", "receipt")
+      .in("ingredient_id", Array.from(new Set(expectedReceipts.map((row) => row.ingredientId!))))
+      .like("idempotency_key", `${idempotencyKey}:%`);
+    if (receiptResult.error) return { ok: false, message: "บันทึกวัตถุดิบแล้วแต่ตรวจยอดเริ่มต้นจากฐานข้อมูลไม่ได้" };
+    const missingReceipts = expectedReceipts.filter((expected) => {
+      const received = (receiptResult.data ?? []).filter((movement: { ingredient_id: string; quantity: number }) => movement.ingredient_id === expected.ingredientId).reduce((sum: number, movement: { ingredient_id: string; quantity: number }) => sum + Number(movement.quantity ?? 0), 0);
+      return received + 0.000001 < expected.quantity;
+    });
+    if (missingReceipts.length) return { ok: false, message: `บันทึกวัตถุดิบแล้วแต่ยอดเริ่มต้นยังไม่ครบ: ${missingReceipts.map((row) => row.name).join(", ")}` };
+  }
+
+  const recipeExpectations = bundle.drafts.filter((draft) => draft.kind === "recipe").flatMap((draft) => draft.rows.map((row) => ({
+    menuId: menus.get(catalogName(row.menuName)),
+    ingredientId: ingredients.get(catalogName(row.ingredientName)),
+    quantity: Number(row.quantity),
+    menuName: String(row.menuName ?? ""),
+    ingredientName: String(row.ingredientName ?? ""),
+  })));
+  if (recipeExpectations.length) {
+    const menuIds = Array.from(new Set(recipeExpectations.map((row) => row.menuId).filter((id): id is string => Boolean(id))));
+    const recipeResult = await supabase
+      .from("recipes")
+      .select("menu_item_id, archived_at, recipe_lines(ingredient_id, quantity)")
+      .eq("shop_id", shopId)
+      .is("archived_at", null)
+      .in("menu_item_id", menuIds);
+    if (recipeResult.error) return { ok: false, message: "บันทึกเมนูแล้วแต่ตรวจสูตรล่าสุดจากฐานข้อมูลไม่ได้" };
+    const missingRecipeLines = recipeExpectations.filter((expected) => {
+      if (!expected.menuId || !expected.ingredientId || !Number.isFinite(expected.quantity) || expected.quantity <= 0) return true;
+      return !(recipeResult.data ?? []).some((recipe: { menu_item_id: string; recipe_lines?: Array<{ ingredient_id: string; quantity: number }> }) => recipe.menu_item_id === expected.menuId && (recipe.recipe_lines ?? []).some((line) => line.ingredient_id === expected.ingredientId && Math.abs(Number(line.quantity) - expected.quantity) < 0.000001));
+    });
+    if (missingRecipeLines.length) {
+      return { ok: false, message: `บันทึกเมนูแล้วแต่ยังไม่พบสูตรครบ ${missingRecipeLines.map((row) => `${row.ingredientName} ของ ${row.menuName}`).join(", ")}` };
+    }
+  }
+  return { ok: true };
 }
 
 function stockStatus(quantityOnHand: number, reorderPoint: number) {
@@ -284,9 +377,19 @@ export function LanluProvider({ children }: { children: React.ReactNode }) {
   const importCatalog = useCallback(async (input: CatalogImportInput): Promise<Result> => { if (!state.shop.id) return { ok: false, message: "ตั้งค่าร้านก่อนนำเข้า" }; const { error: importError } = await supabase.rpc("bulk_import_catalog", { target_shop_id: state.shop.id, import_kind: input.kind, import_rows: input.rows, idempotency_key: input.idempotencyKey, conflict_mode: input.conflictMode }); if (importError) return { ok: false, message: messageForError(importError, "นำเข้าข้อมูลไม่สำเร็จ") }; await refresh(); return { ok: true, message: "นำเข้าข้อมูลเข้า LanLu แล้ว" }; }, [refresh, state.shop.id, supabase]);
   const importCatalogBundle = useCallback(async (input: CatalogBundleImportInput): Promise<Result> => {
     if (!state.shop.id) return { ok: false, message: "ตั้งค่าร้านก่อนนำเข้า" };
-    const { error: importError } = await supabase.rpc("bulk_import_catalog_bundle", { target_shop_id: state.shop.id, import_rows: input.bundle.drafts.map((draft) => ({ kind: draft.kind, rows: draft.rows })), idempotency_key: input.idempotencyKey, conflict_mode: input.conflictMode });
+    const { data: rpcData, error: importError } = await supabase.rpc("bulk_import_catalog_bundle", { target_shop_id: state.shop.id, import_rows: input.bundle.drafts.map((draft) => ({ kind: draft.kind, rows: draft.rows })), idempotency_key: input.idempotencyKey, conflict_mode: input.conflictMode });
     if (importError) return { ok: false, message: messageForError(importError, "นำเข้าชุด catalog ไม่สำเร็จ") };
-    await refresh(); return { ok: true, message: "นำเข้าชุด catalog แบบ transaction เดียวแล้ว" };
+    const result = (rpcData ?? {}) as CatalogImportRpcResult;
+    if (!result.batchId) return { ok: false, message: "ระบบตอบกลับว่าไม่พบเลขอ้างอิงการบันทึก จึงยังไม่ยืนยันผล" };
+    let verification: { ok: boolean; message?: string };
+    try {
+      verification = await verifyCatalogBundle(supabase, state.shop.id, input.bundle, result.batchId, input.idempotencyKey);
+    } catch {
+      return { ok: false, message: "ระบบส่งคำสั่งบันทึกแล้ว แต่ตรวจสอบผลจากฐานข้อมูลไม่สำเร็จ กดซ้ำได้โดยไม่สร้างรายการซ้ำ" };
+    }
+    if (!verification.ok) return { ok: false, message: verification.message ?? "บันทึกแล้วแต่ตรวจสอบรายการไม่ครบ" };
+    await refresh();
+    return { ok: true, message: result.replayed ? "ยืนยันแล้ว ชุดข้อมูลนี้ถูกบันทึกไว้ก่อนหน้า และตรวจพบข้อมูลครบในฐานข้อมูล" : `บันทึกแล้ว ${Number(result.imported ?? 0).toLocaleString("th-TH")} รายการ และตรวจพบข้อมูลครบในฐานข้อมูล` };
   }, [refresh, state.shop.id, supabase]);
   const dismissRecommendation = useCallback(async (recommendationId: string): Promise<Result> => { if (recommendationId.startsWith("local-")) { setState((current) => ({ ...current, recommendations: current.recommendations.filter((item) => item.id !== recommendationId) })); return { ok: true, message: "ซ่อนคำแนะนำแล้ว" }; } const { error: updateError } = await supabase.from("recommendations").update({ dismissed_at: now() }).eq("id", recommendationId); if (updateError) return { ok: false, message: messageForError(updateError, "ซ่อนคำแนะนำไม่สำเร็จ") }; await refresh(); return { ok: true, message: "ซ่อนคำแนะนำแล้ว" }; }, [refresh, supabase]);
   const value = useMemo<LanluContextValue>(() => ({ state, user, loading, hydrated, error, needsOnboarding: Boolean(user && !state.shop.id), refresh, createShop, recordSale, confirmDailyClose, postMovement, updateShop, addMenuItem, updateMenuItem, archiveCatalogItem, restoreCatalogItem, deleteCatalogItem, archiveRecipe, createMenuCategory, addIngredient, updateIngredient, saveRecipe, importCatalog, importCatalogBundle, dismissRecommendation, resetDemo: () => setState(emptyState) }), [addIngredient, addMenuItem, archiveCatalogItem, archiveRecipe, confirmDailyClose, createMenuCategory, createShop, deleteCatalogItem, dismissRecommendation, error, hydrated, importCatalog, importCatalogBundle, loading, postMovement, recordSale, refresh, restoreCatalogItem, saveRecipe, state, updateIngredient, updateMenuItem, updateShop, user]);

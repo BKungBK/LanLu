@@ -2,7 +2,7 @@
 version: 1
 status: complete
 task_id: lanlu-sales-capture-signal-hardening
-updated_at: 2026-08-23T20:35:00+07:00
+updated_at: 2026-08-23T23:15:20+07:00
 ---
 
 # Goal
@@ -72,6 +72,11 @@ Implement the LanLu Catalog + Gemini Assistant and major UI audit plan from the 
 - Added `lib/assistant-parser.ts` deterministic fast path for `เพิ่มวัตถุดิบ นม 10 ขวด ขวดละ 50 บาท และ 500ml`, returning 5,000 ml, 10 bottles, 500 baht total, and 0.10 baht/ml without Gemini; draft calculation summaries and retry-preserved prompts are visible in Assistant.
 - Added `20260823020000_catalog_restore.sql`; restoring is audited, and archiving all active recipe versions prevents an older recipe version from becoming active accidentally.
 - Final verification after this pass: `npm run typecheck` passed, `npm run test` passed 13/13, `npm run build` passed, Impeccable detector returned `[]`, and local guest route audit passed 17/17. Authenticated Capture audit was not rerun because `AUDIT_EMAIL`/`AUDIT_PASSWORD` were unavailable in this session.
+- Implemented the LanLu UX/UI and motion pass across shared primitives, AppShell, auth/onboarding, Dashboard, Capture, Assistant, Sales, Forecast, and form controls. Added semantic landmarks, active navigation state, focus restoration for drawer/popovers, clearer labels, linked dashboard signals, tabpanel contracts, human-readable auth errors, and touch targets.
+- Added the native CSS motion system in `app/globals.css`: page enter, stagger reveal, press/hover/focus states, drawer/backdrop, popover, toast, loading shimmer, chart reveal, selection feedback, empty-state mark, processing pulse, and live status pulse. Per the user plan, the existing reduced-motion block was removed and no `prefers-reduced-motion`, `reduce-motion`, or scroll listener was added.
+- Final verification after the UX/UI pass: `npm run typecheck` passed, `npm run test` passed 26/26, `npm run build` passed with 17 routes, `node --check scripts/audit-production.mjs` passed, `git diff --check` passed, and the Impeccable detector returned `[]`.
+- Clean local Playwright guest audit passed `24/24` route and `1/1` interaction checks across 1440px, 1024px, 390px, and 430px viewports. No credentials were configured, so authenticated production audit remains pending.
+- Codebase graph refreshed after the UX/UI implementation: 440 nodes, 895 edges.
 
 # Open issues
 
@@ -82,20 +87,18 @@ Implement the LanLu Catalog + Gemini Assistant and major UI audit plan from the 
 
 # Latest checkpoint
 
-Hardened the assistant follow-up flow. Inventory messages without a command prefix are parsed, short answers such as `70` are resolved against the previous assistant question locally without another Gemini call, price scope and missing quantity questions are handled explicitly, and draft/CSV confirmation always clears pending state even when the import promise throws. Ambiguous input remains draft-only and asks a focused question instead of guessing.
+Hardened the assistant menu setup and catalog draft confirmation flow. Natural Thai menu commands now use a deterministic path that asks for missing price or recipe details one question at a time, remembers those answers across turns, matches only an exact or unique close ingredient name, converts recipe quantities into the ingredient stock unit, and refuses unknown or incompatible references instead of guessing. Invalid Gemini JSON now degrades to a safe question rather than a format error.
 
-Verification: typecheck passed, tests passed 21/21, and production build passed. Authenticated UI/AI production audit still needs the supplied audit account.
+Draft confirmation now keeps one idempotency key across retries. The store checks the returned import batch, completed row count, menu and ingredient records, active recipe lines, and initial receipt movements before showing success; replaying a committed key reports the existing verified write and does not create duplicates. Error feedback is visibly distinct from success.
+
+Verification: `npm run typecheck` passed, `npm run test` passed 26/26, `npm run build` passed with 17 routes, `git diff --check` passed, Impeccable detector returned `[]`, and the local guest browser audit passed 17/17 desktop/mobile checks. Authenticated production write verification remains pending because `AUDIT_EMAIL`/`AUDIT_PASSWORD` are not available in this environment.
 
 # Next action
 
-If production sets `GEMINI_MODEL`, keep it at `gemini-3.5-flash-lite` before deployment; otherwise the new default is used. Run the authenticated UI/AI production audit after deployment; push only after user requests it.
+Run the authenticated production assistant flow with a disposable menu/ingredient set: submit a complete menu draft, confirm it once, reload Inventory/Menu & recipe, retry the same confirmation path, and verify no duplicate rows or receipt movements. Keep `GEMINI_MODEL` at `gemini-3.5-flash-lite` when set before deployment. Push only after the user requests it.
 
 # Current follow-up
 
-User reported that the dashboard signal strip is visually left-heavy, sales capture is hard to understand, and updating sales appears unavailable. Graph/source inspection found the strip lacks centered flex alignment, capture blocks the action while global `loading` is true and does not persist the draft idempotency key, and the sales report has no explicit refresh action. The database already has the `record_sales_batch` and `confirm_daily_close` RPCs with server-side line validation.
+The shared visual system keeps the warm LanLu identity while making page purpose, primary actions, feedback, and route continuity clearer on mobile. Local audit artifacts remain ignored, and the local dev server was stopped after verification.
 
-Planned changes: center signal items; harden Quick capture date/draft initialization, single-ingredient selection, validation, error feedback, and retry-safe submission; add a clearly labeled sales refresh action and empty states; wrap store hydration in catch/finally so a failed load cannot leave the capture action disabled indefinitely.
-
-Verification: centered signal strip, clearer capture steps/summary, timezone-safe and retry-safe capture drafts, single-ingredient enforcement, explicit validation/error states, store hydration catch/finally, sales refresh action, and empty sales tables are implemented. `npm run typecheck` passed, `npm run test` passed 21/21, `npm run build` passed, `git diff --check` passed, Impeccable detector returned `[]`, and the warmed local guest audit passed 17/17 desktop/mobile checks. Authenticated submit/production UI audit remains pending until the audit account is available; push is authorized by the user for this verified change.
-
-Next action: push the verified change to `origin/master`, then let the user run the authenticated test. Before a production deployment, keep `GEMINI_MODEL` at `gemini-3.5-flash-lite` when set and run the authenticated UI/AI audit with the supplied account.
+The user reported repeated assistant format failures and asked for proof that confirming a draft really writes data. The implementation is complete locally; the remaining external check is the authenticated write/reload/retry audit against the linked Supabase/Vercel environment. No credentials were stored, and unrelated `.codebase-memory` changes plus the user-provided `AGENTS.md` remain outside the source changes.
