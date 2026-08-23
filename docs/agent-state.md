@@ -2,7 +2,7 @@
 version: 1
 status: complete
 task_id: lanlu-catalog-gemini-ui-audit
-updated_at: 2026-08-23T05:05:28+07:00
+updated_at: 2026-08-23T10:50:00+07:00
 ---
 
 # Goal
@@ -82,10 +82,10 @@ Implement the LanLu Catalog + Gemini Assistant and major UI audit plan from the 
 
 # Latest checkpoint
 
-Hardened the assistant and catalog layout after the user reported slow/error-prone AI and cramped controls. The deterministic ingredient fast path now accepts both `เพิ่มวัตถุดิบ ...` and `เพิ่ม ...` purchase commands, Gemini uses a valid dynamic JSON Schema with `gemini-2.5-flash-lite` by default, server calls have an 8-second timeout with no SDK retry loop, and duplicate sends are guarded. Fixed menu form action placement, filter/list spacing, and mobile order-count layout.
+Switched the assistant's default Gemini model to the verified stable model ID `gemini-3.5-flash-lite`; `GEMINI_MODEL` remains an explicit environment override. The existing structured JSON schema, 8-second timeout, and single-attempt request behavior are unchanged.
 
-Verification: typecheck passed, tests passed 14/14, production build passed, warm local guest route audit passed 17/17, and Impeccable detector returned `[]`. Authenticated UI/AI production audit still needs the supplied audit account.
+Verification: typecheck passed and tests passed 14/14. Authenticated UI/AI production audit still needs the supplied audit account.
 
 # Next action
 
-Authenticated UI/AI production audit still needs the supplied audit account; push only after user requests it.
+If production sets `GEMINI_MODEL`, update that environment value to `gemini-3.5-flash-lite` before deployment; otherwise the new default is used. Run the authenticated UI/AI production audit after deployment; push only after user requests it.

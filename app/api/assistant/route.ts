@@ -176,7 +176,7 @@ export async function POST(request: Request) {
   if (memberError || !member?.shop_id) return NextResponse.json({ error: "ไม่พบร้านของบัญชีนี้" }, { status: 403 });
   const context = await loadCatalogContext(supabase, member.shop_id as string);
   const prompt = buildPrompt(body.data.message, body.data.conversation, context, body.data.csvPreview);
-  const model = process.env.GEMINI_MODEL?.trim() || "gemini-2.5-flash-lite";
+  const model = process.env.GEMINI_MODEL?.trim() || "gemini-3.5-flash-lite";
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY, httpOptions: { timeout: 8_000, retryOptions: { attempts: 1 } } });
   try {
     const turn = await generateTurn(ai, model, prompt);
